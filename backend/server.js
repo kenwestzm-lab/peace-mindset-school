@@ -75,8 +75,7 @@ app.use("/api/events", eventRouter);
 app.use("/api/chat", require("./routes/chat"));
 app.use("/api/developer", require("./routes/developer"));
 app.use("/api/admin", require("./routes/admin"));
-app.use("/api/pesapal", require("./routes/pesapal"));
-app.use("/api/disbursement", require("./routes/disbursement"));;
+app.use("/api/calendar", require("./routes/calendar"));
 
 // Health check
 app.get("/api/health", (req, res) => {
@@ -112,21 +111,27 @@ io.on("connection", (socket) => {
     socket.join("admin_room");
   });
 
+  socket.on("join_developer", () => {
+    socket.join("developer_room");
+    console.log("Developer joined developer_room");
+  });
+
   socket.on("send_message", async (data) => {
     try {
-      const Message = require("./models/Message");
+      const { Message } = require("./models/index");
       const msg = await Message.create({
         sender: data.senderId,
         senderRole: data.senderRole,
         parentId: data.parentId,
         content: data.content,
+        messageType: data.messageType || "text",
+        mediaData: data.mediaData || null,
+        mediaMimeType: data.mediaMimeType || null,
+        duration: data.duration || null,
       });
 
       const populated = await msg.populate("sender", "name email");
-
-      // Send to admin room
       io.to("admin_room").emit("new_message", populated);
-      // Send to the parent
       io.to(`user:${data.parentId}`).emit("new_message", populated);
     } catch (err) {
       console.error("Socket message error:", err);

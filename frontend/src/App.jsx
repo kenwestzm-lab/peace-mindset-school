@@ -29,8 +29,8 @@ import AdminAnnouncements from './pages/admin/Announcements';
 import AdminEvents from './pages/admin/Events';
 import AdminChat from './pages/admin/Chat';
 import AdminParents from './pages/admin/Parents';
-import Disbursements from './pages/admin/Disbursements';
 import AdminSettings from './pages/admin/Settings';
+import AdminCalendar from './pages/admin/Calendar';
 
 // Developer pages
 import DeveloperDashboard from './pages/developer/Dashboard';
@@ -115,7 +115,7 @@ export default function App() {
           <Route path="chat" element={<AdminChat />} />
           <Route path="parents" element={<AdminParents />} />
           <Route path="settings" element={<AdminSettings />} />
-                <Route path="disbursements" element={<Disbursements />} />
+          <Route path="calendar" element={<AdminCalendar />} />
         </Route>
 
         {/* Developer routes */}

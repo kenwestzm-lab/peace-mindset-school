@@ -5,65 +5,52 @@ import Header from './Header';
 import { useStore } from '../../store/useStore';
 import { getSocket } from '../../utils/socket';
 import toast from 'react-hot-toast';
-import { useT } from '../../hooks/useT';
 
 export default function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, incrementUnread } = useStore();
-  const { t } = useT();
 
-  // Listen for global real-time events
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
 
-    // Payment events for parents
-    socket.on('payment_approved', (data) => {
-      toast.success(t('paymentApproved'));
-    });
+    socket.on('payment_approved', () => toast.success('✅ Payment approved!', { duration: 5000 }));
+    socket.on('payment_rejected', (d) => toast.error(`❌ Payment rejected: ${d.reason}`, { duration: 6000 }));
+    socket.on('payment_expired', () => toast.error('⚠️ Your payment has expired. Please renew.', { duration: 8000 }));
+    socket.on('balance_reminder', (d) => toast(`💳 Reminder: ZMW ${d.remaining} still owed for ${d.childName}`, { duration: 8000, icon:'⚠️' }));
 
-    socket.on('payment_rejected', (data) => {
-      toast.error(`${t('paymentRejected')}: ${data.reason}`);
-    });
-
-    socket.on('payment_expired', () => {
-      toast.error(t('paymentExpired'), { duration: 8000 });
-    });
-
-    // New messages
     socket.on('new_message', (msg) => {
-      if (msg.sender?._id !== user?._id) {
+      if (msg.sender?._id !== user?._id && msg.sender !== user?._id) {
         incrementUnread();
-        toast(`💬 ${msg.sender?.name}: ${msg.content.substring(0, 50)}...`, { duration: 5000 });
+        const preview = msg.messageType === 'voice' ? '🎤 Voice message' :
+                        msg.messageType === 'image' ? '📷 Photo' :
+                        msg.messageType === 'video' ? '🎥 Video' :
+                        msg.content?.substring(0, 40);
+        toast(`💬 ${msg.sender?.name}: ${preview}`, { duration: 5000 });
       }
     });
 
-    // Announcements
-    socket.on('new_announcement', ({ announcement }) => {
-      const title = user?.language === 'fr' && announcement.titleFr
-        ? announcement.titleFr : announcement.title;
-      toast(`📢 ${title}`, { duration: 6000 });
+    socket.on('new_announcement', ({announcement}) => {
+      toast(`📢 ${announcement.title}`, { duration: 6000 });
     });
 
-    // Events
-    socket.on('new_event', ({ event }) => {
-      const title = user?.language === 'fr' && event.titleFr ? event.titleFr : event.title;
-      toast(`🗓️ ${title}`, { duration: 6000 });
+    socket.on('new_event', ({event}) => {
+      toast(`🗓️ ${event.title}`, { duration: 6000 });
     });
 
-    // Child registered (parent notification)
-    socket.on('child_registered', ({ child }) => {
-      toast.success(`${child.name} has been registered!`);
+    socket.on('school_status', ({status, message}) => {
+      toast(message || `🏫 School is now ${status}`, { duration: 8000, icon: status==='open' ? '🟢' : '🔴' });
     });
 
     return () => {
       socket.off('payment_approved');
       socket.off('payment_rejected');
       socket.off('payment_expired');
+      socket.off('balance_reminder');
       socket.off('new_message');
       socket.off('new_announcement');
       socket.off('new_event');
-      socket.off('child_registered');
+      socket.off('school_status');
     };
   }, [user]);
 

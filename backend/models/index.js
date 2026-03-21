@@ -96,28 +96,28 @@ const eventSchema = new mongoose.Schema(
 // ─── Message ──────────────────────────────────────────────────────────────────
 const messageSchema = new mongoose.Schema(
   {
-    sender: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
-    senderRole: {
-      type: String,
-      enum: ["parent", "admin"],
-      required: true,
-    },
-    parentId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      // The parent involved in the conversation (for grouping chats)
-    },
-    content: {
-      type: String,
-      required: true,
-      maxlength: [2000, "Message too long"],
-    },
+    sender: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    senderRole: { type: String, enum: ["parent", "admin"], required: true },
+    parentId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    content: { type: String, required: true, maxlength: [5000, "Message too long"] },
+    messageType: { type: String, enum: ["text", "voice", "image", "video"], default: "text" },
+    mediaData: { type: String }, // base64 encoded media
+    mediaMimeType: { type: String }, // e.g. audio/webm, image/jpeg
+    duration: { type: Number }, // voice duration in seconds
     isRead: { type: Boolean, default: false },
+  },
+  { timestamps: true }
+);
+
+// ─── School Calendar ──────────────────────────────────────────────────────────
+const schoolCalendarSchema = new mongoose.Schema(
+  {
+    date: { type: Date, required: true, unique: true },
+    status: { type: String, enum: ["open", "closed", "holiday", "event"], default: "open" },
+    title: { type: String, required: true }, // e.g. "Term 1 Opening", "Public Holiday"
+    description: { type: String },
+    color: { type: String, default: "#9B1826" },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true }
 );
@@ -198,6 +198,7 @@ module.exports = {
   Announcement: mongoose.model("Announcement", announcementSchema),
   Event: mongoose.model("Event", eventSchema),
   Message: mongoose.model("Message", messageSchema),
+  SchoolCalendar: mongoose.model("SchoolCalendar", schoolCalendarSchema),
   Earnings: mongoose.model("Earnings", earningsSchema),
   Withdrawal: mongoose.model("Withdrawal", withdrawalSchema),
   FeeSettings: mongoose.model("FeeSettings", feeSettingsSchema),

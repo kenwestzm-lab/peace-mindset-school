@@ -3,13 +3,35 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
+    <meta name="description" content="Peace Mindset Private School — Better Education" />
     <meta name="theme-color" content="#6B0F1A" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>Peace Mindset Private School</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <style>
-      input, select, textarea { font-size: 16px !important; }
+      /* Prevent layout shift when keyboard opens on Android */
+      html {
+        height: 100%;
+        overflow: hidden;
+      }
+      body {
+        height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-y: none;
+      }
+      #root {
+        min-height: 100%;
+      }
+      /* Prevent inputs from zooming on iOS */
+      input, select, textarea {
+        font-size: 16px !important;
+      }
     </style>
   </head>
   <body>
