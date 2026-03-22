@@ -105,6 +105,9 @@ const messageSchema = new mongoose.Schema(
     mediaMimeType: { type: String }, // e.g. audio/webm, image/jpeg
     duration: { type: Number }, // voice duration in seconds
     isRead: { type: Boolean, default: false },
+    deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    deletedForEveryone: { type: Boolean, default: false },
+    reactions: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, emoji: String }],
   },
   { timestamps: true }
 );
@@ -193,6 +196,68 @@ const feeSettingsSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+
+// ─── Story ────────────────────────────────────────────────────────────────────
+const storySchema = new mongoose.Schema(
+  {
+    author: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    mediaType: { type: String, enum: ["text", "image", "video"], default: "text" },
+    mediaData: { type: String }, // base64 or URL
+    mediaMimeType: { type: String },
+    text: { type: String },
+    bgColor: { type: String, default: "#6B0F1A" },
+    views: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 24*60*60*1000) },
+    isActive: { type: Boolean, default: true },
+  },
+  { timestamps: true }
+);
+
+// ─── Group Chat ───────────────────────────────────────────────────────────────
+const groupSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    description: { type: String },
+    icon: { type: String, default: "🏫" },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    members: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    admins: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    isActive: { type: Boolean, default: true },
+    lastMessage: { type: String },
+    lastMessageTime: { type: Date },
+  },
+  { timestamps: true }
+);
+
+// ─── Group Message ─────────────────────────────────────────────────────────────
+const groupMessageSchema = new mongoose.Schema(
+  {
+    group: { type: mongoose.Schema.Types.ObjectId, ref: "Group", required: true },
+    sender: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    content: { type: String, required: true },
+    messageType: { type: String, enum: ["text","voice","image","video"], default: "text" },
+    mediaData: { type: String },
+    mediaMimeType: { type: String },
+    duration: { type: Number },
+    deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    deletedForEveryone: { type: Boolean, default: false },
+    reactions: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, emoji: String }],
+    readBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  },
+  { timestamps: true }
+);
+
+// ─── Push Subscription ────────────────────────────────────────────────────────
+const pushSubscriptionSchema = new mongoose.Schema(
+  {
+    user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    subscription: { type: Object, required: true },
+    deviceName: { type: String },
+  },
+  { timestamps: true }
+);
+
 module.exports = {
   Result: mongoose.model("Result", resultSchema),
   Announcement: mongoose.model("Announcement", announcementSchema),
@@ -202,4 +267,8 @@ module.exports = {
   Earnings: mongoose.model("Earnings", earningsSchema),
   Withdrawal: mongoose.model("Withdrawal", withdrawalSchema),
   FeeSettings: mongoose.model("FeeSettings", feeSettingsSchema),
+  Story: mongoose.model("Story", storySchema),
+  Group: mongoose.model("Group", groupSchema),
+  GroupMessage: mongoose.model("GroupMessage", groupMessageSchema),
+  PushSubscription: mongoose.model("PushSubscription", pushSubscriptionSchema),
 };

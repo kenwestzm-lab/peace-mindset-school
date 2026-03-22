@@ -19,6 +19,7 @@ import ParentResults from './pages/parent/Results';
 import ParentAnnouncements from './pages/parent/Announcements';
 import ParentEvents from './pages/parent/Events';
 import ParentChat from './pages/parent/Chat';
+import ParentStories from './pages/parent/Stories';
 import ParentProfile from './pages/parent/Profile';
 
 // Admin pages
@@ -98,6 +99,7 @@ export default function App() {
           <Route path="announcements" element={<ParentAnnouncements />} />
           <Route path="events" element={<ParentEvents />} />
           <Route path="chat" element={<ParentChat />} />
+          <Route path="stories" element={<ParentStories />} />
           <Route path="profile" element={<ParentProfile />} />
         </Route>
 

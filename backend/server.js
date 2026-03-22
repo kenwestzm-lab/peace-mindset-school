@@ -76,6 +76,9 @@ app.use("/api/chat", require("./routes/chat"));
 app.use("/api/developer", require("./routes/developer"));
 app.use("/api/admin", require("./routes/admin"));
 app.use("/api/calendar", require("./routes/calendar"));
+app.use("/api/stories", require("./routes/stories"));
+app.use("/api/groups", require("./routes/groups"));
+app.use("/api/push", require("./routes/push"));
 
 // Health check
 app.get("/api/health", (req, res) => {
