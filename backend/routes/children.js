@@ -25,7 +25,7 @@ router.get("/admin/all", protect, authorize("admin"), async (req, res) => {
 // POST /api/children/admin/register - Admin registers new student
 router.post("/admin/register", protect, authorize("admin"), async (req, res) => {
   try {
-    const { name, grade, studentId, parentEmail, dob, gender } = req.body;
+    const { name, grade, studentId, parentEmail, dob, gender, gradeTeacher, teacherPhone } = req.body;
     if (!name || !grade) return res.status(400).json({ error: "Name and grade are required" });
 
     if (studentId) {

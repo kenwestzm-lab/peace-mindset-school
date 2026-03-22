@@ -4,6 +4,7 @@ import api from '../../utils/api';
 import { getSocket } from '../../utils/socket';
 import { uploadMedia } from '../../utils/mediaUpload';
 import toast from 'react-hot-toast';
+import { trimAudioTo30Seconds, formatDuration } from '../../utils/audioTrim';
 
 function timeLeft(expiresAt) {
   const diff = new Date(expiresAt) - Date.now();

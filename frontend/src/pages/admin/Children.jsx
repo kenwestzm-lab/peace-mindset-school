@@ -13,7 +13,7 @@ export default function AdminChildren() {
   const [children, setChildren] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name:'', grade:'', studentId: generateStudentId(), parentEmail:'', dob:'', gender:'male' });
+  const [form, setForm] = useState({ name:'', grade:'', studentId: generateStudentId(), parentEmail:'', dob:'', gender:'male', gradeTeacher:'', teacherPhone:'' });
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
   const [childPhotoUploading, setChildPhotoUploading] = useState(null);
