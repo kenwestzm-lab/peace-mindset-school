@@ -4,109 +4,179 @@ const { Result } = require("../models/index");
 const Payment = require("../models/Payment");
 const Child = require("../models/Child");
 const { protect, authorize } = require("../middleware/auth");
-const { uploadResult } = require("../middleware/upload");
 
-// ── GET /api/results/child/:childId ──────────────────────────────────────────
+// ── Helper: check if parent has paid test fee for term ────────────────
+const hasTestFeeAccess = async (parentId, childId, termYear, termNumber) => {
+  const now = new Date();
+  
+  // Check for valid (unaccessed) test fee payment
+  const validPayment = await Payment.findOne({
+    parent: parentId,
+    child: childId,
+    paymentType: "test_fee",
+    termYear,
+    termNumber,
+    status: "approved",
+    isExpired: false,
+    $or: [
+      { expiresAt: { $gt: now } },
+      { expiresAt: null },
+    ],
+  });
+  
+  if (validPayment) return { access: true, payment: validPayment, alreadyAccessed: false };
+  
+  // Check for previously accessed (already paid and viewed — free to view again)
+  const accessedPayment = await Payment.findOne({
+    parent: parentId,
+    child: childId,
+    paymentType: "test_fee",
+    termYear,
+    termNumber,
+    status: "approved",
+    testResultAccessed: true,
+  });
+  
+  if (accessedPayment) return { access: true, payment: accessedPayment, alreadyAccessed: true, free: true };
+  
+  return { access: false };
+};
+
+// ── GET /api/results/child/:childId - Get results for child ───────────
 router.get("/child/:childId", protect, async (req, res) => {
   try {
-    const child = await Child.findById(req.params.childId);
-    if (!child) return res.status(404).json({ error: "Child not found." });
+    const { childId } = req.params;
 
-    if (req.user.role === "parent" && child.parent.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: "Access denied." });
+    // Verify ownership
+    if (req.user.role === "parent") {
+      const child = await Child.findById(childId);
+      if (!child || child.parent.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ error: "Not your child" });
+      }
     }
 
-    // Check if parent has active school fees (for non-admin)
-    let hasAccess = req.user.role === "admin" || req.user.role === "developer";
-
-    if (!hasAccess) {
-      const activeFee = await Payment.findOne({
-        child: req.params.childId,
-        paymentType: { $in: ["school_fee_monthly", "school_fee_term"] },
-        status: "approved",
-        isExpired: false,
-        expiresAt: { $gt: new Date() },
-      });
-      hasAccess = !!activeFee;
-    }
-
-    const results = await Result.find({ child: req.params.childId })
+    const results = await Result.find({ child: childId })
       .populate("uploadedBy", "name")
-      .sort({ createdAt: -1 });
+      .sort({ year: -1, term: -1 });
 
-    // Lock file URLs if no access
-    const safeResults = results.map((r) => ({
-      ...r.toObject(),
-      fileUrl: hasAccess ? r.fileUrl : null,
-      isLocked: !hasAccess,
-    }));
+    // For parents: check payment access for each result
+    if (req.user.role === "parent") {
+      const enriched = await Promise.all(
+        results.map(async (r) => {
+          const access = await hasTestFeeAccess(
+            req.user._id, childId, r.year, r.term
+          );
+          return {
+            _id: r._id,
+            title: r.title,
+            term: r.term,
+            year: r.year,
+            createdAt: r.createdAt,
+            subjects: access.access ? r.subjects : [], // Hide subjects if locked
+            fileUrl: access.access ? r.fileUrl : null,  // Hide file if locked
+            isLocked: !access.access,
+            alreadyAccessed: access.alreadyAccessed || false,
+            paymentId: access.payment?._id || null,
+          };
+        })
+      );
+      return res.json({ results: enriched });
+    }
 
-    res.json({ results: safeResults, hasAccess });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    // Admin sees everything
+    res.json({ results });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── POST /api/results - Admin: upload result ────────────────────────────────
-router.post(
-  "/",
-  protect,
-  authorize("admin"),
-  uploadResult.single("resultFile"),
-  async (req, res) => {
-    try {
-      const { childId, title, term, year, subjects } = req.body;
+// ── POST /api/results/:id/access - Parent accesses result (marks fee used)
+router.post("/:id/access", protect, async (req, res) => {
+  try {
+    const result = await Result.findById(req.params.id);
+    if (!result) return res.status(404).json({ error: "Result not found" });
 
-      if (!childId || !title || !term || !year || !req.file) {
-        return res.status(400).json({ error: "All fields and file are required." });
-      }
-
-      const child = await Child.findById(childId);
-      if (!child) return res.status(404).json({ error: "Child not found." });
-
-      // Check if parent has active fees
-      const activeFee = await Payment.findOne({
-        child: childId,
-        paymentType: { $in: ["school_fee_monthly", "school_fee_term"] },
-        status: "approved",
-        isExpired: false,
-        expiresAt: { $gt: new Date() },
-      });
-
-      const result = await Result.create({
-        child: childId,
-        uploadedBy: req.user._id,
-        title,
-        term: Number(term),
-        year: Number(year),
-        fileUrl: req.file.path,
-        filePublicId: req.file.filename,
-        isLocked: !activeFee,
-        subjects: subjects ? JSON.parse(subjects) : [],
-      });
-
-      const io = req.app.get("io");
-      io.to(`user:${child.parent}`).emit("result_uploaded", {
-        childId,
-        result: { ...result.toObject(), fileUrl: activeFee ? result.fileUrl : null },
-      });
-
-      res.status(201).json({ result, message: "Result uploaded successfully." });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
+    if (req.user.role !== "parent") {
+      return res.json({ access: true, result }); // Admin always has access
     }
-  }
-);
 
-// ── DELETE /api/results/:id - Admin: delete result ──────────────────────────
+    const access = await hasTestFeeAccess(
+      req.user._id, result.child, result.year, result.term
+    );
+
+    if (!access.access) {
+      return res.status(403).json({
+        error: "Test fee not paid",
+        locked: true,
+        message: `Please pay the test fee for Term ${result.term} ${result.year} to access this result.`,
+      });
+    }
+
+    // Mark payment as accessed (first time only)
+    if (!access.alreadyAccessed && access.payment) {
+      await Payment.findByIdAndUpdate(access.payment._id, {
+        testResultAccessed: true,
+        testResultAccessedAt: new Date(),
+      });
+    }
+
+    res.json({
+      access: true,
+      result,
+      alreadyAccessed: access.alreadyAccessed || false,
+      message: access.alreadyAccessed ? "Free access (previously paid)" : "Access granted",
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/results - Admin uploads result ──────────────────────────
+router.post("/", protect, authorize("admin"), async (req, res) => {
+  try {
+    const { childId, title, term, year, fileUrl, filePublicId, subjects } = req.body;
+    if (!childId || !title || !term || !year || !fileUrl) {
+      return res.status(400).json({ error: "Required fields missing" });
+    }
+
+    const result = await Result.create({
+      child: childId,
+      uploadedBy: req.user._id,
+      title,
+      term,
+      year,
+      fileUrl,
+      filePublicId,
+      subjects: subjects || [],
+      isLocked: true,
+    });
+
+    const populated = await result.populate("uploadedBy", "name");
+
+    // Notify parent
+    const child = await Child.findById(childId).populate("parent", "_id");
+    if (child?.parent) {
+      const io = req.app.get("io");
+      io.to(`user:${child.parent._id}`).emit("new_result", {
+        result: populated,
+        message: `📋 New result uploaded for ${child.name} - Term ${term} ${year}`,
+      });
+      try {
+        const { sendPushToUser } = require("./push");
+        await sendPushToUser(child.parent._id.toString(), {
+          title: "New Result Available 📋",
+          body: `Results for Term ${term} ${year} are now available for ${child.name}.`,
+          url: "/parent/results",
+        });
+      } catch {}
+    }
+
+    res.status(201).json({ result: populated });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── DELETE /api/results/:id - Admin deletes result ────────────────────
 router.delete("/:id", protect, authorize("admin"), async (req, res) => {
   try {
-    const result = await Result.findByIdAndDelete(req.params.id);
-    if (!result) return res.status(404).json({ error: "Result not found." });
-    res.json({ message: "Result deleted." });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    await Result.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 module.exports = router;

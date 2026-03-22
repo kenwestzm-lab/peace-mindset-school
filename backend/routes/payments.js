@@ -2,317 +2,308 @@ const express = require("express");
 const router = express.Router();
 const Payment = require("../models/Payment");
 const Child = require("../models/Child");
-const { Earnings, FeeSettings } = require("../models/index");
+const { FeeSettings } = require("../models/index");
 const { protect, authorize } = require("../middleware/auth");
-const { uploadPaymentProof } = require("../middleware/upload");
+const {
+  getCurrentTerm, getTerm, getPaymentExpiry,
+  getTermMonths, isPaymentValid, getPayableTerms,
+} = require("../utils/zambia-calendar");
 
-// Helper: calculate expiry date
-const calculateExpiry = (type, startDate = new Date()) => {
-  const d = new Date(startDate);
-  if (type === "school_fee_monthly") {
-    d.setMonth(d.getMonth() + 1);
-  } else if (type === "school_fee_term") {
-    d.setMonth(d.getMonth() + 3);
-  } else {
-    // Test/event fees don't expire
-    d.setFullYear(d.getFullYear() + 1);
-  }
-  return d;
-};
-
-// GET /api/payments - Parent: own payments | Admin: all payments
-router.get("/", protect, async (req, res) => {
+// ── GET /api/payments/calendar - Get Zambian school term calendar ──────
+router.get("/calendar", protect, async (req, res) => {
   try {
-    let query = {};
-    if (req.user.role === "parent") query.parent = req.user._id;
+    const current = getCurrentTerm();
+    const payable = getPayableTerms();
+    const fees = await FeeSettings.findOne();
+    res.json({
+      currentTerm: current,
+      payableTerms: payable,
+      fees: {
+        termly: fees?.schoolFeeTermly || 450,
+        monthly: fees?.schoolFeeMonthly || 150,
+        twoTerms: (fees?.schoolFeeTermly || 450) * 2 * 0.95, // 5% discount for 2 terms
+        testFeeLower: fees?.testFeeLower || 30,
+        testFeeUpper: fees?.testFeeUpper || 40,
+      },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-    const payments = await Payment.find(query)
-      .populate("child", "name grade")
-      .populate("parent", "name email")
-      .populate("approvedBy", "name")
-      .populate("event", "title")
+// ── GET /api/payments/my - Parent gets their payments ─────────────────
+router.get("/my", protect, async (req, res) => {
+  try {
+    const payments = await Payment.find({ parent: req.user._id })
+      .populate("child", "name grade studentId profilePic")
       .sort({ createdAt: -1 });
+
+    // Auto-expire any that have passed
+    const now = new Date();
+    for (const p of payments) {
+      if (p.expiresAt && now > p.expiresAt && !p.isExpired && p.status === "approved") {
+        p.isExpired = true;
+        await p.save();
+      }
+    }
 
     res.json({ payments });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/payments/register - Admin: full payment register
-router.get("/register", protect, authorize("admin", "developer"), async (req, res) => {
+// ── GET /api/payments/child/:childId/access - Check what child can access
+router.get("/child/:childId/access", protect, async (req, res) => {
   try {
-    const { status, childId, page = 1, limit = 50 } = req.query;
-    let query = {};
-    if (status) query.status = status;
-    if (childId) query.child = childId;
+    const { childId } = req.params;
+    const now = new Date();
+    const current = getCurrentTerm();
 
-    const total = await Payment.countDocuments(query);
-    const payments = await Payment.find(query)
-      .populate("child", "name grade")
-      .populate("parent", "name email phone")
-      .populate("approvedBy", "name")
-      .populate("event", "title")
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(Number(limit));
-
-    res.json({ payments, total, page: Number(page), pages: Math.ceil(total / limit) });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/payments/fees - Get current fee settings
-router.get("/fees", protect, async (req, res) => {
-  try {
-    const fees = await FeeSettings.findOne();
-    res.json({ fees });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/payments/child/:childId - Payment history for a child
-router.get("/child/:childId", protect, async (req, res) => {
-  try {
-    const child = await Child.findById(req.params.childId);
-    if (!child) return res.status(404).json({ error: "Child not found." });
-
-    // Parent can only see own child's payments
-    if (req.user.role === "parent" && child.parent.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: "Access denied." });
-    }
-
-    const payments = await Payment.find({ child: req.params.childId })
-      .populate("event", "title")
-      .sort({ createdAt: -1 });
-
-    // Check if school fees are active (not expired, approved)
-    const activeSchoolFee = await Payment.findOne({
-      child: req.params.childId,
-      paymentType: { $in: ["school_fee_monthly", "school_fee_term"] },
+    // Find all approved, non-expired payments for this child
+    const payments = await Payment.find({
+      child: childId,
+      parent: req.user._id,
       status: "approved",
       isExpired: false,
-      expiresAt: { $gt: new Date() },
     });
+
+    // Check school fee access
+    let schoolFeeAccess = false;
+    let activePayment = null;
+    for (const p of payments) {
+      if (
+        (p.paymentType === "school_fee_termly" || p.paymentType === "school_fee_monthly" || p.paymentType === "school_fee_2terms") &&
+        p.expiresAt && now <= p.expiresAt
+      ) {
+        schoolFeeAccess = true;
+        activePayment = p;
+        break;
+      }
+    }
+
+    // Check test fee access per term
+    const testFeeAccess = {};
+    for (const p of payments) {
+      if (p.paymentType === "test_fee" && p.expiresAt && now <= p.expiresAt && !p.testResultAccessed) {
+        const key = `${p.termYear}_${p.termNumber}`;
+        testFeeAccess[key] = { paid: true, paymentId: p._id, accessed: false };
+      }
+    }
+
+    // Previous test results they've already paid for and accessed (free to view again)
+    const accessedTestFees = await Payment.find({
+      child: childId,
+      parent: req.user._id,
+      paymentType: "test_fee",
+      status: "approved",
+      testResultAccessed: true,
+    });
+    for (const p of accessedTestFees) {
+      const key = `${p.termYear}_${p.termNumber}`;
+      if (!testFeeAccess[key]) {
+        testFeeAccess[key] = { paid: true, paymentId: p._id, accessed: true, free: true };
+      }
+    }
 
     res.json({
-      payments,
-      hasActiveSchoolFee: !!activeSchoolFee,
-      activeUntil: activeSchoolFee?.expiresAt || null,
+      schoolFeeAccess,
+      activePayment,
+      testFeeAccess,
+      currentTerm: current,
     });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/payments - Parent: submit payment
-router.post(
-  "/",
-  protect,
-  authorize("parent"),
-  uploadPaymentProof.single("proof"),
-  async (req, res) => {
-    try {
-      const { childId, paymentType, mobileMoneyProvider, transactionId, term, eventId } = req.body;
+// ── POST /api/payments - Submit a payment ────────────────────────────
+router.post("/", protect, async (req, res) => {
+  try {
+    const {
+      childId, paymentType, termYear, termNumber, termNumber2, month,
+      amount, mobileMoneyRef, mobileMoneyProvider, phoneNumber,
+      proofImageData, proofImageMime, notes,
+    } = req.body;
 
-      if (!childId || !paymentType || !mobileMoneyProvider || !transactionId) {
-        return res.status(400).json({ error: "All required fields must be filled." });
-      }
-
-      const child = await Child.findById(childId);
-      if (!child) return res.status(404).json({ error: "Child not found." });
-      if (child.parent.toString() !== req.user._id.toString()) {
-        return res.status(403).json({ error: "This child is not registered to your account." });
-      }
-
-      // Get current fee settings
-      const fees = await FeeSettings.findOne();
-
-      let amount = 0;
-      if (paymentType === "school_fee_monthly") amount = fees.schoolFeeMonthly;
-      else if (paymentType === "school_fee_term") amount = fees.schoolFeeTermly;
-      else if (paymentType === "test_fee") {
-        const lowerGrades = ["Baby Class", "Reception", "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5"];
-        amount = lowerGrades.includes(child.grade) ? fees.testFeeLower : fees.testFeeUpper;
-      } else if (paymentType === "event_fee") {
-        const { Event } = require("../models/index");
-        const event = await Event.findById(eventId);
-        if (!event) return res.status(404).json({ error: "Event not found." });
-        amount = event.paymentAmount;
-      }
-
-      const platformFeePercent = parseFloat(process.env.PLATFORM_FEE_PERCENT) || 5;
-      const platformFee = parseFloat((amount * platformFeePercent / 100).toFixed(2));
-
-      const paymentData = {
-        child: childId,
-        parent: req.user._id,
-        paymentType,
-        amount,
-        mobileMoneyProvider,
-        transactionId,
-        platformFee,
-        term: term ? Number(term) : undefined,
-        event: eventId || undefined,
-      };
-
-      if (req.file) {
-        paymentData.proofUrl = req.file.path;
-        paymentData.proofPublicId = req.file.filename;
-      }
-
-      const payment = await Payment.create(paymentData);
-      const populated = await payment.populate([
-        { path: "child", select: "name grade" },
-        { path: "parent", select: "name email" },
-      ]);
-
-      // Real-time: notify admin
-      const io = req.app.get("io");
-      io.to("admin_room").emit("new_payment", { payment: populated });
-
-      res.status(201).json({ payment: populated });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
+    if (!childId || !paymentType) {
+      return res.status(400).json({ error: "childId and paymentType required" });
     }
-  }
-);
 
-// PUT /api/payments/:id/approve - Admin: approve payment
+    const child = await Child.findById(childId);
+    if (!child) return res.status(404).json({ error: "Child not found" });
+    if (child.parent.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "Not your child" });
+    }
+
+    const fees = await FeeSettings.findOne();
+
+    // Calculate expiry based on payment type
+    let expiresAt = null;
+    let calculatedAmount = amount;
+
+    if (paymentType === "school_fee_termly") {
+      expiresAt = getPaymentExpiry(termYear, termNumber, "termly");
+      calculatedAmount = fees?.schoolFeeTermly || 450;
+    } else if (paymentType === "school_fee_monthly") {
+      expiresAt = getPaymentExpiry(termYear, termNumber, "monthly");
+      calculatedAmount = fees?.schoolFeeMonthly || 150;
+    } else if (paymentType === "school_fee_2terms") {
+      // Expires 3 days after the SECOND term closes
+      const term2 = getTerm(termYear, termNumber2 || termNumber + 1);
+      expiresAt = term2?.expiryDate || getPaymentExpiry(termYear, termNumber, "termly");
+      calculatedAmount = Math.round((fees?.schoolFeeTermly || 450) * 2 * 0.95); // 5% discount
+    } else if (paymentType === "test_fee") {
+      // Test fee: expires at end of current term
+      expiresAt = getPaymentExpiry(termYear, termNumber, "termly");
+      const grade = child.grade?.toLowerCase() || "";
+      const isUpper = ["6","7","8","9","10","11","12","form"].some(g => grade.includes(g));
+      calculatedAmount = isUpper ? (fees?.testFeeUpper || 40) : (fees?.testFeeLower || 30);
+    }
+
+    const payment = await Payment.create({
+      parent: req.user._id,
+      child: childId,
+      paymentType,
+      termYear: termYear || new Date().getFullYear(),
+      termNumber,
+      termNumber2,
+      month,
+      amount: calculatedAmount,
+      mobileMoneyRef,
+      mobileMoneyProvider,
+      phoneNumber,
+      proofImageData,
+      proofImageMime,
+      expiresAt,
+      notes,
+      status: "pending",
+    });
+
+    const populated = await payment.populate("child", "name grade studentId");
+
+    // Notify admin
+    const io = req.app.get("io");
+    io.to("admin_room").emit("new_payment", { payment: populated });
+
+    res.status(201).json({ payment: populated });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PUT /api/payments/:id/approve - Admin approves payment ────────────
 router.put("/:id/approve", protect, authorize("admin"), async (req, res) => {
   try {
     const payment = await Payment.findById(req.params.id);
-    if (!payment) return res.status(404).json({ error: "Payment not found." });
-    if (payment.status === "approved") {
-      return res.status(400).json({ error: "Payment already approved." });
-    }
+    if (!payment) return res.status(404).json({ error: "Not found" });
 
-    const now = new Date();
     payment.status = "approved";
     payment.approvedBy = req.user._id;
-    payment.approvedAt = now;
-    payment.periodStart = now;
-    payment.expiresAt = calculateExpiry(payment.paymentType, now);
-    payment.isExpired = false;
-    payment.platformFeeStatus = "credited";
+    payment.approvedAt = new Date();
     await payment.save();
 
-    // Update child payment status
-    await Child.findByIdAndUpdate(payment.child, {
-      paymentStatus: "paid",
-      balance: payment.amount,
-    });
+    const populated = await payment.populate("child", "name grade");
 
-    // Credit developer earnings
-    if (payment.platformFee > 0) {
-      await Earnings.create({
-        source: "payment_fee",
-        payment: payment._id,
-        amount: payment.platformFee,
-        description: `Platform fee from payment #${payment._id}`,
-      });
-    }
-
-    const populated = await payment.populate([
-      { path: "child", select: "name grade" },
-      { path: "parent", select: "name email" },
-      { path: "approvedBy", select: "name" },
-    ]);
-
-    const io = req.app.get("io");
     // Notify parent
-    io.to(`user:${payment.parent}`).emit("payment_approved", { payment: populated });
-    // Update developer earnings in real-time
-    io.to("developer_room").emit("earnings_update", {
-      amount: payment.platformFee,
-      paymentId: payment._id,
+    const io = req.app.get("io");
+    io.to(`user:${payment.parent}`).emit("payment_approved", {
+      payment: populated,
+      message: `✅ Your ${payment.paymentType.replace(/_/g, " ")} for ${populated.child?.name} has been approved!`,
     });
 
-    res.json({ payment: populated, message: "Payment approved successfully." });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    // Push notification
+    try {
+      const { sendPushToUser } = require("./push");
+      await sendPushToUser(payment.parent.toString(), {
+        title: "Payment Approved! ✅",
+        body: `Your payment for ${populated.child?.name} has been approved.`,
+        url: "/parent/payments",
+      });
+    } catch {}
+
+    // Create developer earnings record (2% fee)
+    try {
+      const { Earnings } = require("../models/index");
+      const fee = Math.round(payment.amount * 0.02 * 100) / 100;
+      if (fee > 0) {
+        await Earnings.create({
+          source: "payment_fee",
+          payment: payment._id,
+          amount: fee,
+          description: `2% fee on ZMW ${payment.amount} payment`,
+        });
+        payment.developerFeeProcessed = true;
+        await payment.save();
+      }
+    } catch {}
+
+    res.json({ payment: populated });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT /api/payments/:id/reject - Admin: reject payment
+// ── PUT /api/payments/:id/reject - Admin rejects payment ──────────────
 router.put("/:id/reject", protect, authorize("admin"), async (req, res) => {
   try {
     const { reason } = req.body;
     const payment = await Payment.findByIdAndUpdate(
       req.params.id,
-      {
-        status: "rejected",
-        rejectionReason: reason || "Payment could not be verified.",
-        approvedBy: req.user._id,
-        approvedAt: new Date(),
-      },
+      { status: "rejected", rejectionReason: reason },
       { new: true }
-    ).populate([
-      { path: "child", select: "name grade" },
-      { path: "parent", select: "name email" },
-    ]);
-
-    if (!payment) return res.status(404).json({ error: "Payment not found." });
+    ).populate("child", "name grade");
 
     const io = req.app.get("io");
-    io.to(`user:${payment.parent._id}`).emit("payment_rejected", {
+    io.to(`user:${payment.parent}`).emit("payment_rejected", {
       payment,
-      reason: payment.rejectionReason,
+      reason,
+      message: `❌ Your payment for ${payment.child?.name} was rejected: ${reason}`,
     });
 
-    res.json({ payment, message: "Payment rejected." });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    try {
+      const { sendPushToUser } = require("./push");
+      await sendPushToUser(payment.parent.toString(), {
+        title: "Payment Rejected ❌",
+        body: reason || "Your payment was rejected. Please resubmit.",
+        url: "/parent/payments",
+      });
+    } catch {}
+
+    res.json({ payment });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT /api/payments/fees - Admin: update fee settings
-router.put("/fees", protect, authorize("admin"), async (req, res) => {
+// ── GET /api/payments/admin/all - Admin gets all payments ─────────────
+router.get("/admin/all", protect, authorize("admin"), async (req, res) => {
   try {
-    const { schoolFeeMonthly, schoolFeeTermly, testFeeLower, testFeeUpper } = req.body;
-    const fees = await FeeSettings.findOneAndUpdate(
-      {},
-      { schoolFeeMonthly, schoolFeeTermly, testFeeLower, testFeeUpper, updatedBy: req.user._id },
-      { new: true, upsert: true }
-    );
+    const { status, type, page = 1 } = req.query;
+    const filter = {};
+    if (status && status !== "all") filter.status = status;
+    if (type && type !== "all") filter.paymentType = type;
 
-    const io = req.app.get("io");
-    io.emit("fees_updated", { fees });
+    const payments = await Payment.find(filter)
+      .populate("child", "name grade studentId profilePic")
+      .populate("parent", "name email phone")
+      .populate("approvedBy", "name")
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .skip((page - 1) * 50);
 
-    res.json({ fees, message: "Fee settings updated." });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    const total = await Payment.countDocuments(filter);
+    res.json({ payments, total, pages: Math.ceil(total / 50) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/payments/test-access/:paymentId - Mark test result accessed
+router.post("/test-access/:paymentId", protect, async (req, res) => {
+  try {
+    const payment = await Payment.findById(req.params.paymentId);
+    if (!payment) return res.status(404).json({ error: "Not found" });
+    if (payment.parent.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    if (payment.paymentType !== "test_fee") {
+      return res.status(400).json({ error: "Not a test fee payment" });
+    }
+    // Mark as accessed — subsequent free views allowed
+    if (!payment.testResultAccessed) {
+      payment.testResultAccessed = true;
+      payment.testResultAccessedAt = new Date();
+      await payment.save();
+    }
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 module.exports = router;
-
-// POST /api/payments/:id/refund — Admin only
-router.post("/:id/refund", protect, authorize("admin"), async (req, res) => {
-  try {
-    const payment = await Payment.findById(req.params.id).populate("parent", "name phone");
-    if (!payment) return res.status(404).json({ error: "Payment not found" });
-    if (payment.status !== "approved") return res.status(400).json({ error: "Only approved payments can be refunded" });
-    if (!payment.parent.phone) return res.status(400).json({ error: "Parent has no phone number on file" });
-
-    const { sendMoney } = require("../utils/momo");
-    const transferId = await sendMoney({
-      amount: payment.amount,
-      phone: payment.parent.phone,
-      name: payment.parent.name,
-      reason: "Refund from Peace Mindset School",
-    });
-
-    payment.status = "refunded";
-    payment.refundTransferId = transferId;
-    payment.refundedAt = new Date();
-    await payment.save();
-
-    res.json({ success: true, message: "Refund sent via MoMo", transferId });
-  } catch (err) {
-    console.error("Refund error:", err?.response?.data || err.message);
-    res.status(500).json({ error: "Refund failed", details: err?.response?.data || err.message });
-  }
-});

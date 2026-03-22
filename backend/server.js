@@ -56,6 +56,7 @@ app.use("/api/calendar", require("./routes/calendar"));
 app.use("/api/stories", require("./routes/stories"));
 app.use("/api/groups", require("./routes/groups"));
 app.use("/api/push", require("./routes/push"));
+app.use("/api/upload", require("./routes/upload"));
 app.use("/api/profile", require("./routes/profile"));
 
 app.get("/api/health", (req, res) => res.json({ status: "ok", ts: new Date().toISOString() }));
@@ -172,3 +173,4 @@ server.listen(PORT, () => {
   console.log(`📡 Environment: ${process.env.NODE_ENV}`);
 });
 module.exports = { io, connectedUsers };
+require('./utils/cron')(io);
