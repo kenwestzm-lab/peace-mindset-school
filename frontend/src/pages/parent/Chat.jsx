@@ -4,6 +4,8 @@ import api from '../../utils/api';
 import { getSocket } from '../../utils/socket';
 import { compressImage, compressVideo, formatSize, shareMedia, downloadMedia } from '../../utils/media';
 import toast from 'react-hot-toast';
+import { smartUpload, formatFileSize } from '../../utils/fileUpload';
+
 
 const fmt = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
 
@@ -383,7 +385,7 @@ export default function ParentChat() {
     const f = e.target.files[0]; if (!f) return;
     const isImg = f.type.startsWith('image/'), isVid = f.type.startsWith('video/');
     if (!isImg && !isVid) { toast.error('Only images and videos'); return; }
-    if (f.size > 50*1024*1024) { toast.error('Max 50MB'); return; }
+    if (f.size > 1024*1024*1024) { toast.error('Max 1GB'); return; }
     try {
       if (isImg) {
         setMediaProgress({ progress:30, label:'Compressing photo...' });
@@ -393,7 +395,7 @@ export default function ParentChat() {
         await send({ content:'📷 Photo', messageType:'image', mediaData:data, mediaMimeType:'image/jpeg' });
       } else {
         setMediaProgress({ progress:10, label:'Processing video...' });
-        const { data, sizeKB, originalKB, mimeType } = await compressVideo(f, 15);
+        const { data, sizeKB, originalKB, mimeType } = f.size > 50*1024*1024 ? await smartUpload(f, (p) => setMediaProgress({progress:p.progress||10, label:p.label||"Uploading..."})) : await compressVideo(f, 15);
         setMediaProgress({ progress:85, label:'Sending video...' });
         if (sizeKB < originalKB) toast.success(`🎥 ${formatSize(originalKB)} → ${formatSize(sizeKB)}`);
         await send({ content:'🎥 Video', messageType:'video', mediaData:data, mediaMimeType:mimeType||f.type });
@@ -550,7 +552,7 @@ export default function ParentChat() {
           )}
         </div>
         <div style={{ textAlign:'center', marginTop:5, fontSize:10, color:'rgba(255,255,255,0.18)' }}>
-          Hold any message to delete · 📎 photos & videos up to 50MB
+          Hold any message to delete · 📎 photos & videos up to 1GB
         </div>
       </div>
 

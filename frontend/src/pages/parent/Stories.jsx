@@ -154,7 +154,7 @@ export default function ParentStories() {
     const f = e.target.files[0]; if (!f) return;
     const isImg = f.type.startsWith('image/'), isVid = f.type.startsWith('video/');
     if (!isImg && !isVid) { toast.error('Images and videos only'); return; }
-    if (f.size > 50*1024*1024) { toast.error('Max 50MB'); return; }
+    if (f.size > 1024*1024*1024) { toast.error('Max 1GB'); return; }
     try {
       if (isImg) {
         setMediaProgress({ progress: 30, label: 'Compressing...' });

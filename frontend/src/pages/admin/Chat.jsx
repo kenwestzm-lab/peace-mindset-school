@@ -4,6 +4,8 @@ import api from '../../utils/api';
 import { getSocket } from '../../utils/socket';
 import { compressImage, compressVideo, formatSize, shareMedia, downloadMedia } from '../../utils/media';
 import toast from 'react-hot-toast';
+import { smartUpload, formatFileSize } from '../../utils/fileUpload';
+
 
 const fmt = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
 
@@ -248,7 +250,7 @@ export default function AdminChat() {
     const f=e.target.files[0]; if(!f) return;
     const isImg=f.type.startsWith('image/'),isVid=f.type.startsWith('video/');
     if(!isImg&&!isVid){toast.error('Images and videos only');return;}
-    if(f.size>50*1024*1024){toast.error('Max 50MB');return;}
+    if(f.size>1024*1024*1024){toast.error('Max 1GB');return;}
     const isGroup=screen==='group';
     try{
       if(isImg){ setMediaProgress({progress:30,label:'Compressing...'}); const {data,sizeKB,originalKB}=await compressImage(f,1); setMediaProgress({progress:85,label:'Sending...'}); toast.success(`Photo: ${formatSize(originalKB)}→${formatSize(sizeKB)}`); await send({content:'📷 Photo',messageType:'image',mediaData:data,mediaMimeType:'image/jpeg'},isGroup); }
