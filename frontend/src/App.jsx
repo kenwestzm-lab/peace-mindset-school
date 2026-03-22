@@ -25,6 +25,7 @@ import AdminStoriesPage from './pages/admin/Stories';
 import AdminChat from './pages/admin/Chat';
 import AdminParents from './pages/admin/Parents';
 import ProfileSettings from './pages/ProfileSettings';
+import AdminResults from './pages/admin/Results';
 import AdminSettings from './pages/admin/Settings';
 import AdminCalendar from './pages/admin/Calendar';
 import DeveloperDashboard from './pages/developer/Dashboard';
@@ -76,6 +77,7 @@ export default function App() {
         <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AppLayout /></ProtectedRoute>}>
           <Route index element={<AdminDashboard />} />
           <Route path="children" element={<AdminChildren />} />
+          <Route path="results" element={<AdminResults /> />
           <Route path="payments" element={<AdminPayments />} />
           <Route path="announcements" element={<AdminAnnouncements />} />
           <Route path="events" element={<AdminEvents />} />

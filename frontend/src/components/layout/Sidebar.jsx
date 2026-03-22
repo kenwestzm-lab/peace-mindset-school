@@ -16,6 +16,7 @@ const parentNav = [
 ];
 const adminNav = [
   { key:'dashboard', path:'/admin', icon:'🏠', label:'adminDashboard', exact:true },
+  { key:'children', path:'/admin/results', icon:'📋', label:'results' },
   { key:'children', path:'/admin/children', icon:'🧒', label:'manageChildren' },
   { key:'payments', path:'/admin/payments', icon:'💳', label:'managePayments' },
   { key:'calendar', path:'/admin/calendar', icon:'📅', label:'schoolCalendar' },

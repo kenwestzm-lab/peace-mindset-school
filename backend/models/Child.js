@@ -42,7 +42,9 @@ const childSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    isActive: {
+    gradeTeacher: { type: String },
+  teacherPhone: { type: String },
+  isActive: {
       type: Boolean,
       default: true,
     },
