@@ -84,6 +84,8 @@ export default function App() {
           <Route path="settings" element={<AdminSettings />} />
           <Route path="stories" element={<AdminStoriesPage />} />
           <Route path="profile" element={<ProfileSettings />} />
+          <Route path="stories" element={<AdminStoriesPage />} />
+          <Route path="profile" element={<ProfileSettings />} />
           <Route path="calendar" element={<AdminCalendar />} />
         </Route>
         <Route path="/developer" element={<ProtectedRoute allowedRoles={['developer']}><AppLayout /></ProtectedRoute>}>

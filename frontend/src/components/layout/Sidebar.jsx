@@ -23,6 +23,8 @@ const adminNav = [
   { key:'events', path:'/admin/events', icon:'🗓️', label:'events' },
   { key:'chat', path:'/admin/chat', icon:'💬', label:'chat' },
   { key:'parents', path:'/admin/parents', icon:'👪', label:'manageParents' },
+  { key:'stories', path:'/admin/stories', icon:'📖', label:'stories' },
+  { key:'profile', path:'/admin/profile', icon:'👤', label:'profile' },
   { key:'settings', path:'/admin/settings', icon:'⚙️', label:'systemSettings' },
 ];
 const devNav = [

@@ -1,128 +1,85 @@
 const express = require("express");
 const router = express.Router();
 const Child = require("../models/Child");
+const User = require("../models/User");
 const { protect, authorize } = require("../middleware/auth");
 
-// GET /api/children - Admin: all children | Parent: own children
+// GET /api/children - Parent gets their children
 router.get("/", protect, async (req, res) => {
   try {
-    let query = { isActive: true };
-    if (req.user.role === "parent") query.parent = req.user._id;
-
-    const children = await Child.find(query)
-      .populate("parent", "name email phone")
-      .sort({ createdAt: -1 });
-
+    const children = await Child.find({ parent: req.user._id, isActive: true }).sort({ name: 1 }).lean();
     res.json({ children });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/children/all - Admin: all children including inactive
-router.get("/all", protect, authorize("admin", "developer"), async (req, res) => {
+// GET /api/children/admin/all - Admin gets ALL children
+router.get("/admin/all", protect, authorize("admin"), async (req, res) => {
   try {
-    const children = await Child.find()
-      .populate("parent", "name email phone")
-      .sort({ createdAt: -1 });
+    const children = await Child.find({ isActive: true })
+      .populate("parent", "name email phone profilePic")
+      .sort({ grade: 1, name: 1 }).lean();
     res.json({ children });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/children/:id
-router.get("/:id", protect, async (req, res) => {
+// POST /api/children/admin/register - Admin registers new student
+router.post("/admin/register", protect, authorize("admin"), async (req, res) => {
   try {
-    const child = await Child.findById(req.params.id).populate("parent", "name email phone");
-    if (!child) return res.status(404).json({ error: "Child not found." });
+    const { name, grade, studentId, parentEmail, dob, gender } = req.body;
+    if (!name || !grade) return res.status(400).json({ error: "Name and grade are required" });
 
-    // Parents can only see their own children
-    if (req.user.role === "parent" && child.parent._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: "Access denied." });
+    if (studentId) {
+      const exists = await Child.findOne({ studentId });
+      if (exists) return res.status(400).json({ error: `Student ID "${studentId}" already taken` });
     }
 
-    res.json({ child });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/children - Admin only: register new child
-router.post("/", protect, authorize("admin"), async (req, res) => {
-  try {
-    const { name, grade, gradeTeacher, gradeTeacherPhone, parentId } = req.body;
-
-    if (!name || !grade || !gradeTeacher || !gradeTeacherPhone || !parentId) {
-      return res.status(400).json({ error: "All fields are required." });
+    let parentId = null;
+    if (parentEmail) {
+      const parent = await User.findOne({ email: parentEmail.toLowerCase(), role: "parent" });
+      if (parent) parentId = parent._id;
     }
 
     const child = await Child.create({
-      name,
-      grade,
-      gradeTeacher,
-      gradeTeacherPhone,
+      name: name.trim(), grade: grade.trim(),
+      studentId: studentId || null,
       parent: parentId,
+      dob: dob ? new Date(dob) : null,
+      gender: gender || "male",
+      isActive: true,
     });
 
-    const populated = await child.populate("parent", "name email phone");
-
-    // Real-time: notify the parent
-    const io = req.app.get("io");
-    io.to(`user:${parentId}`).emit("child_registered", { child: populated });
-
-    res.status(201).json({ child: populated });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    const populated = await Child.findById(child._id).populate("parent", "name email").lean();
+    res.status(201).json({ child: populated, message: `Student registered! ID: ${studentId||'N/A'}` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT /api/children/:id - Admin only: update child
+// PUT /api/children/:id - Update child
 router.put("/:id", protect, authorize("admin"), async (req, res) => {
   try {
-    const { name, grade, gradeTeacher, gradeTeacherPhone, parentId } = req.body;
-
-    const child = await Child.findByIdAndUpdate(
-      req.params.id,
-      { name, grade, gradeTeacher, gradeTeacherPhone, parent: parentId },
-      { new: true, runValidators: true }
-    ).populate("parent", "name email phone");
-
-    if (!child) return res.status(404).json({ error: "Child not found." });
-
-    const io = req.app.get("io");
-    io.to(`user:${child.parent._id}`).emit("child_updated", { child });
-
+    const child = await Child.findByIdAndUpdate(req.params.id, req.body, { new: true })
+      .populate("parent", "name email").lean();
+    if (!child) return res.status(404).json({ error: "Not found" });
     res.json({ child });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// DELETE /api/children/:id - Admin only: soft-remove child
+// DELETE /api/children/:id - Deactivate
 router.delete("/:id", protect, authorize("admin"), async (req, res) => {
   try {
-    const { reason } = req.body;
+    await Child.findByIdAndUpdate(req.params.id, { isActive: false });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-    const child = await Child.findByIdAndUpdate(
-      req.params.id,
-      {
-        isActive: false,
-        removedReason: reason || "Transferred to another school",
-        removedAt: new Date(),
-      },
-      { new: true }
-    );
-
-    if (!child) return res.status(404).json({ error: "Child not found." });
-
-    const io = req.app.get("io");
-    io.to(`user:${child.parent}`).emit("child_removed", { childId: child._id });
-
-    res.json({ message: "Child removed successfully.", child });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+// PUT /api/children/:id/link - Link to parent by email
+router.put("/:id/link", protect, authorize("admin"), async (req, res) => {
+  try {
+    const parent = await User.findOne({ email: req.body.parentEmail?.toLowerCase(), role: "parent" });
+    if (!parent) return res.status(404).json({ error: "Parent not found" });
+    const child = await Child.findByIdAndUpdate(req.params.id, { parent: parent._id }, { new: true })
+      .populate("parent", "name email").lean();
+    res.json({ child });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 module.exports = router;

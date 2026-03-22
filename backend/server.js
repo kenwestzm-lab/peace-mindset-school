@@ -29,8 +29,8 @@ app.set("io", io);
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(morgan("dev"));
 app.use(cors({ origin: process.env.FRONTEND_URL || "http://localhost:5173", credentials: true }));
-app.use(express.json({ limit: "20mb" })); // 20mb for profile pics base64
-app.use(express.urlencoded({ extended: true, limit: "20mb" }));
+app.use(express.json({ limit: "50mb" })); // 20mb for profile pics base64
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 const limiter = rateLimit({ windowMs: 15*60*1000, max: 500 });
 const authLimiter = rateLimit({ windowMs: 15*60*1000, max: 20 });
