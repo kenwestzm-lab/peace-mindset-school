@@ -37,7 +37,7 @@ function MsgBubble({ msg, isMe, userId, onDelete, onShare, onDownload, onReact }
     <>
       {imgFull && (
         <div onClick={()=>setImgFull(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.95)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center'}}>
-          <img src={msg.mediaData} alt="" style={{maxWidth:'95vw',maxHeight:'90vh',objectFit:'contain', background:'#000'}}/>
+          <img src={msg.mediaData} alt="" style={{maxWidth:'95vw',maxHeight:'90vh',objectFit:'contain', background:'#000', background:'#000'}}/>
           <div style={{position:'absolute',bottom:24,display:'flex',gap:12}}>
             <button onClick={e=>{e.stopPropagation();downloadMedia(msg.mediaData,'photo.jpg');}} style={shareBtn}>⬇ Save</button>
             <button onClick={e=>{e.stopPropagation();shareMedia(msg.mediaData,'photo.jpg');}} style={shareBtn}>↗ Share</button>
