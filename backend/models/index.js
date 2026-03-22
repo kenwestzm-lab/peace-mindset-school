@@ -44,7 +44,8 @@ const messageSchema = new mongoose.Schema({
   parentId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   content: { type: String, required: true, maxlength: [5000, "Message too long"] },
   messageType: { type: String, enum: ["text", "voice", "image", "video"], default: "text" },
-  mediaData: { type: String }, // base64 encoded media (up to 60MB via socket)
+  mediaData: { type: String }, // base64 or Cloudinary URL
+    mediaPublicId: { type: String }, // Cloudinary public_id for deletion (up to 60MB via socket)
   mediaMimeType: { type: String },
   duration: { type: Number },
   isRead: { type: Boolean, default: false },
@@ -99,13 +100,17 @@ const feeSettingsSchema = new mongoose.Schema({
 const storySchema = new mongoose.Schema({
   author: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   mediaType: { type: String, enum: ["text", "image", "video"], default: "text" },
-  mediaData: { type: String }, // base64 or URL
+  mediaData: { type: String }, // base64 or Cloudinary URL
+    mediaPublicId: { type: String },
   mediaMimeType: { type: String },
   text: { type: String },
   bgColor: { type: String, default: "#6B0F1A" },
   views: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-  expiresAt: { type: Date, default: () => new Date(Date.now() + 24*60*60*1000) },
+  audioUrl: { type: String },
+    audioPublicId: { type: String },
+    audioName: { type: String },
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 24*60*60*1000) },
   isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 
