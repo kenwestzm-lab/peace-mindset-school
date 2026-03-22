@@ -78,3 +78,32 @@ router.post("/", protect, async (req, res) => {
 });
 
 module.exports = router;
+
+// Group broadcast - admin sends to ALL parents
+router.post('/broadcast', protect, authorize('admin'), async (req, res) => {
+  try {
+    const { content, messageType, mediaData, mediaMimeType, duration } = req.body;
+    const { Message } = require('../models/index');
+    const User = require('../models/User');
+    const parents = await User.find({ role: 'parent' }, '_id');
+    const io = req.app.get('io');
+    const messages = [];
+    for (const parent of parents) {
+      const message = await Message.create({
+        sender: req.user._id,
+        senderRole: 'admin',
+        parentId: parent._id,
+        content,
+        messageType: messageType || 'text',
+        mediaData: mediaData || null,
+        mediaMimeType: mediaMimeType || null,
+        duration: duration || null,
+      });
+      const populated = await message.populate('sender', 'name role');
+      io.to(`user:${parent._id}`).emit('new_message', populated);
+      messages.push(populated);
+    }
+    io.to('admin_room').emit('broadcast_sent', { count: parents.length });
+    res.status(201).json({ success: true, count: parents.length, messages });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});

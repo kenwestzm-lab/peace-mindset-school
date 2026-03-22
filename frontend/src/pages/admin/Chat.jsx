@@ -67,6 +67,15 @@ export default function AdminChat() {
     } catch { toast.error('Failed to send'); }
   };
 
+  const sendBroadcast = async () => {
+    if (!input.trim()) return;
+    try {
+      const r = await api.post("/chat/broadcast", { content: input.trim(), messageType: "text" });
+      toast.success(`Sent to ${r.data.count} parents!`);
+      setInput("");
+    } catch { toast.error("Broadcast failed"); }
+  };
+
   const sendText = () => {
     if (!input.trim() || !activeParent) return;
     sendMessage({ content: input.trim(), messageType:'text' });
