@@ -4,7 +4,6 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import { useStore } from '../../store/useStore';
 import { getSocket } from '../../utils/socket';
-import { setupPushNotifications } from '../../utils/push';
 import toast from 'react-hot-toast';
 
 export default function AppLayout() {
@@ -45,7 +44,6 @@ export default function AppLayout() {
   useEffect(() => {
     if (user) {
       setTimeout(() => {
-        setupPushNotifications().catch(() => {});
       }, 3000); // delay to not interrupt login UX
     }
   }, [user?._id]);
