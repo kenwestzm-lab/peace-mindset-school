@@ -82,7 +82,7 @@ function Bubble({ msg, isMe, onDelete, onReact, onLongPress }) {
               {msg.messageType==='text'&&<p style={{ fontSize:14.5, color:'#E9EDEF', lineHeight:1.55, margin:0, wordBreak:'break-word' }}>{msg.content}</p>}
               {msg.messageType==='voice'&&(msg.mediaUrl||msg.mediaData)&&<div style={{ display:'flex', alignItems:'center', gap:8, minWidth:200, padding:'4px 6px' }}><span>🎤</span><audio controls src={msg.mediaUrl||msg.mediaData} style={{ flex:1, height:32 }}/>{msg.duration&&<span style={{ fontSize:10, color:'rgba(255,255,255,0.4)' }}>{fmt(msg.duration)}</span>}</div>}
               {msg.messageType==='image'&&(msg.mediaUrl||msg.mediaData)&&<div style={{ position:'relative' }}>
-                <img src={msg.mediaUrl||msg.mediaData} onClick={()=>setImgFull(true)} style={{ maxWidth:240, maxHeight:280, borderRadius:14, display:'block', cursor:'pointer', objectFit:'cover' }}/>
+                <img src={msg.mediaUrl||msg.mediaData} onClick={()=>setImgFull(true)} style={{ maxWidth:240, maxHeight:280, borderRadius:14, display:'block', cursor:'pointer', objectFit:'contain', background:'#000' }}/>
                 <button onClick={e=>{e.stopPropagation();shareMedia(msg.mediaUrl||msg.mediaData,'photo.jpg');}} style={fBtn}>↗</button>
               </div>}
               {msg.messageType==='video'&&(msg.mediaUrl||msg.mediaData)&&<div style={{ position:'relative' }}>

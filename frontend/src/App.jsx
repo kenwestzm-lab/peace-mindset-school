@@ -21,8 +21,10 @@ import AdminChildren from './pages/admin/Children';
 import AdminPayments from './pages/admin/Payments';
 import AdminAnnouncements from './pages/admin/Announcements';
 import AdminEvents from './pages/admin/Events';
+import AdminStoriesPage from './pages/admin/Stories';
 import AdminChat from './pages/admin/Chat';
 import AdminParents from './pages/admin/Parents';
+import ProfileSettings from './pages/ProfileSettings';
 import AdminSettings from './pages/admin/Settings';
 import AdminCalendar from './pages/admin/Calendar';
 import DeveloperDashboard from './pages/developer/Dashboard';
@@ -68,6 +70,7 @@ export default function App() {
           <Route path="events" element={<ParentEvents />} />
           <Route path="chat" element={<ParentChat />} />
           <Route path="stories" element={<ParentStories />} />
+          <Route path="profile" element={<ProfileSettings />} />
           <Route path="profile" element={<ParentProfile />} />
         </Route>
         <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AppLayout /></ProtectedRoute>}>
@@ -79,6 +82,8 @@ export default function App() {
           <Route path="chat" element={<AdminChat />} />
           <Route path="parents" element={<AdminParents />} />
           <Route path="settings" element={<AdminSettings />} />
+          <Route path="stories" element={<AdminStoriesPage />} />
+          <Route path="profile" element={<ProfileSettings />} />
           <Route path="calendar" element={<AdminCalendar />} />
         </Route>
         <Route path="/developer" element={<ProtectedRoute allowedRoles={['developer']}><AppLayout /></ProtectedRoute>}>
