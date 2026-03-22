@@ -4,62 +4,76 @@ const webpush = require("web-push");
 const { PushSubscription } = require("../models/index");
 const { protect } = require("../middleware/auth");
 
-// Setup VAPID (set in env or generate)
+// Configure web-push
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(
-    "mailto:adminpeacemindset.edu.zm@gmail.com",
+    `mailto:${process.env.DEVELOPER_EMAIL || "admin@peacemindset.com"}`,
     process.env.VAPID_PUBLIC_KEY,
     process.env.VAPID_PRIVATE_KEY
   );
 }
 
-// GET /api/push/vapid-public-key
-router.get("/vapid-public-key", (req, res) => {
-  res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || null });
-});
-
-// POST /api/push/subscribe - Save push subscription
+// POST /api/push/subscribe
 router.post("/subscribe", protect, async (req, res) => {
   try {
     const { subscription, deviceName } = req.body;
+    if (!subscription) return res.status(400).json({ error: "Subscription required" });
+
+    // Upsert: update if same endpoint exists, otherwise create
     await PushSubscription.findOneAndUpdate(
       { user: req.user._id, "subscription.endpoint": subscription.endpoint },
-      { user: req.user._id, subscription, deviceName: deviceName || "Android" },
+      { user: req.user._id, subscription, deviceName: deviceName || "Unknown device" },
       { upsert: true, new: true }
     );
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/push/send - Send push to specific user (internal use)
-router.post("/send", protect, async (req, res) => {
+// DELETE /api/push/unsubscribe
+router.delete("/unsubscribe", protect, async (req, res) => {
   try {
-    const { userId, title, body, icon, url } = req.body;
-    const subs = await PushSubscription.find({ user: userId });
-    const payload = JSON.stringify({ title, body, icon: icon || "/logo.webp", url: url || "/" });
-
-    const results = await Promise.allSettled(
-      subs.map(sub => webpush.sendNotification(sub.subscription, payload).catch(async (e) => {
-        if (e.statusCode === 410) await PushSubscription.findByIdAndDelete(sub._id);
-        throw e;
-      }))
-    );
-    res.json({ sent: results.filter(r=>r.status==="fulfilled").length });
+    const { endpoint } = req.body;
+    await PushSubscription.deleteMany({ user: req.user._id, "subscription.endpoint": endpoint });
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Helper: send push to user (used internally)
-const sendPushToUser = async (userId, notification) => {
+// GET /api/push/vapidPublicKey
+router.get("/vapidPublicKey", (req, res) => {
+  res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || "" });
+});
+
+// ─── Helper function used by other routes ────────────────────────────────────
+const sendPushToUser = async (userId, payload) => {
   try {
-    if (!process.env.VAPID_PUBLIC_KEY) return;
     const subs = await PushSubscription.find({ user: userId });
-    const payload = JSON.stringify(notification);
-    await Promise.allSettled(
-      subs.map(sub => webpush.sendNotification(sub.subscription, payload).catch(async (e) => {
-        if (e.statusCode === 410) await PushSubscription.findByIdAndDelete(sub._id);
-      }))
+    if (!subs.length) return;
+
+    const notification = JSON.stringify({
+      title: payload.title || "Peace Mindset",
+      body: payload.body || "",
+      icon: payload.icon || "/logo.webp",
+      badge: "/logo.webp",
+      url: payload.url || "/",
+      timestamp: Date.now(),
+    });
+
+    const results = await Promise.allSettled(
+      subs.map(sub => webpush.sendNotification(sub.subscription, notification))
     );
-  } catch {}
+
+    // Remove expired/invalid subscriptions
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].status === "rejected") {
+        const statusCode = results[i].reason?.statusCode;
+        if (statusCode === 404 || statusCode === 410) {
+          await PushSubscription.findByIdAndDelete(subs[i]._id);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Push notification error:", err.message);
+  }
 };
 
 module.exports = router;

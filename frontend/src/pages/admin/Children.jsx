@@ -1,285 +1,163 @@
-import { useState, useEffect } from 'react';
-import { useT } from '../../hooks/useT';
+import { useState, useEffect, useRef } from 'react';
 import api from '../../utils/api';
+import { compressImage, formatSize } from '../../utils/media';
 import toast from 'react-hot-toast';
-import { format } from 'date-fns';
 
-const GRADES = ['Baby Class','Reception','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Grade 9','Grade 10','Grade 11','Grade 12'];
+function generateStudentId() {
+  const year = new Date().getFullYear().toString().slice(-2);
+  const rand = Math.floor(1000 + Math.random() * 9000);
+  return `PM${year}${rand}`;
+}
 
 export default function AdminChildren() {
-  const { t } = useT();
   const [children, setChildren] = useState([]);
-  const [parents, setParents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState(null); // 'add' | 'edit' | 'remove' | 'result'
-  const [selected, setSelected] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: '', grade: 'Grade 1', gradeTeacher: '', gradeTeacherPhone: '', parentId: '' });
-  const [resultForm, setResultForm] = useState({ title: '', term: '1', year: new Date().getFullYear().toString(), subjects: '' });
-  const [resultFile, setResultFile] = useState(null);
-  const [removeReason, setRemoveReason] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name:'', grade:'', studentId: generateStudentId(), parentEmail:'', dob:'', gender:'male' });
+  const [submitting, setSubmitting] = useState(false);
+  const [search, setSearch] = useState('');
+  const [childPhotoUploading, setChildPhotoUploading] = useState(null);
+  const photoRefs = useRef({});
 
   const load = async () => {
-    try {
-      const [c, p] = await Promise.all([api.get('/children/all'), api.get('/admin/parents')]);
-      setChildren(c.data.children);
-      setParents(p.data.parents);
-    } catch (err) { console.error(err); }
+    try { const r = await api.get('/children/admin/all'); setChildren(r.data.children||[]); }
+    catch { toast.error('Failed to load children'); }
     finally { setLoading(false); }
   };
 
   useEffect(() => { load(); }, []);
 
-  const openAdd = () => {
-    setForm({ name: '', grade: 'Grade 1', gradeTeacher: '', gradeTeacherPhone: '', parentId: '' });
-    setModal('add');
-  };
-
-  const openEdit = (child) => {
-    setSelected(child);
-    setForm({ name: child.name, grade: child.grade, gradeTeacher: child.gradeTeacher, gradeTeacherPhone: child.gradeTeacherPhone, parentId: child.parent?._id || '' });
-    setModal('edit');
-  };
-
-  const openResult = (child) => { setSelected(child); setModal('result'); };
-  const openRemove = (child) => { setSelected(child); setModal('remove'); };
-
-  const saveChild = async (e) => {
+  const submit = async (e) => {
     e.preventDefault();
-    if (!form.parentId) { toast.error('Please select a parent.'); return; }
-    setSaving(true);
+    if (!form.name || !form.grade) { toast.error('Name and grade are required'); return; }
+    setSubmitting(true);
     try {
-      if (modal === 'add') {
-        await api.post('/children', form);
-        toast.success('Child registered!');
-      } else {
-        await api.put(`/children/${selected._id}`, form);
-        toast.success('Child updated!');
-      }
-      setModal(null);
+      await api.post('/children/admin/register', form);
+      toast.success(`Child registered! ID: ${form.studentId}`);
+      setShowForm(false);
+      setForm({ name:'', grade:'', studentId: generateStudentId(), parentEmail:'', dob:'', gender:'male' });
       load();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to save.');
-    } finally { setSaving(false); }
+    } catch (err) { toast.error(err.response?.data?.error || 'Registration failed'); }
+    finally { setSubmitting(false); }
   };
 
-  const removeChild = async () => {
-    setSaving(true);
+  const handleChildPhoto = async (e, childId) => {
+    const f = e.target.files[0]; if (!f) return;
+    if (!f.type.startsWith('image/')) { toast.error('Images only'); return; }
+    setChildPhotoUploading(childId);
     try {
-      await api.delete(`/children/${selected._id}`, { data: { reason: removeReason } });
-      toast.success('Child removed.');
-      setModal(null);
-      load();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to remove.');
-    } finally { setSaving(false); }
+      const { data, sizeKB } = await compressImage(f, 0.5);
+      await api.put(`/profile/child/${childId}/picture`, { childPic: data });
+      setChildren(p => p.map(c => c._id===childId ? {...c, profilePic:data} : c));
+      toast.success(`Photo updated (${formatSize(sizeKB)})`);
+    } catch { toast.error('Upload failed'); }
+    finally { setChildPhotoUploading(null); e.target.value=''; }
   };
 
-  const uploadResult = async (e) => {
-    e.preventDefault();
-    if (!resultFile) { toast.error('Please select a PDF file.'); return; }
-    setSaving(true);
-    try {
-      const fd = new FormData();
-      fd.append('childId', selected._id);
-      fd.append('title', resultForm.title);
-      fd.append('term', resultForm.term);
-      fd.append('year', resultForm.year);
-      fd.append('resultFile', resultFile);
-      if (resultForm.subjects) fd.append('subjects', resultForm.subjects);
-      await api.post('/results', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      toast.success(t('resultUploaded'));
-      setModal(null);
-      setResultFile(null);
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Upload failed.');
-    } finally { setSaving(false); }
-  };
-
-  if (loading) return <div className="page-loader"><div className="spinner" /></div>;
-
-  const ChildForm = () => (
-    <form onSubmit={saveChild}>
-      <div className="modal-body">
-        <div className="form-group">
-          <label className="form-label">{t('childName')} *</label>
-          <input type="text" className="form-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-        </div>
-        <div className="form-group">
-          <label className="form-label">{t('parentAccount')} *</label>
-          <select className="form-select" value={form.parentId} onChange={(e) => setForm({ ...form, parentId: e.target.value })} required>
-            <option value="">— Select parent —</option>
-            {parents.map((p) => <option key={p._id} value={p._id}>{p.name} ({p.email})</option>)}
-          </select>
-        </div>
-        <div className="form-group">
-          <label className="form-label">{t('grade')} *</label>
-          <select className="form-select" value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })}>
-            {GRADES.map((g) => <option key={g} value={g}>{g}</option>)}
-          </select>
-        </div>
-        <div className="form-group">
-          <label className="form-label">{t('gradeTeacher')} *</label>
-          <input type="text" className="form-input" value={form.gradeTeacher} onChange={(e) => setForm({ ...form, gradeTeacher: e.target.value })} required />
-        </div>
-        <div className="form-group">
-          <label className="form-label">{t('teacherPhone')} *</label>
-          <input type="tel" className="form-input" value={form.gradeTeacherPhone} onChange={(e) => setForm({ ...form, gradeTeacherPhone: e.target.value })} placeholder="097XXXXXXX" required />
-        </div>
-      </div>
-      <div className="modal-footer">
-        <button type="button" className="btn btn-secondary" onClick={() => setModal(null)}>{t('cancel')}</button>
-        <button type="submit" className="btn btn-primary" disabled={saving}>
-          {saving ? t('loading') : t('save')}
-        </button>
-      </div>
-    </form>
+  const filtered = children.filter(c =>
+    c.name?.toLowerCase().includes(search.toLowerCase()) ||
+    c.studentId?.toLowerCase().includes(search.toLowerCase()) ||
+    c.grade?.toLowerCase().includes(search.toLowerCase())
   );
 
+  const cardStyle = {
+    background:'var(--bg-card)', border:'1px solid var(--border)',
+    borderRadius:16, padding:18, display:'flex', alignItems:'center', gap:14,
+  };
+
   return (
-    <div className="animate-in">
-      <div className="flex-between mb-24">
-        <div>
-          <h2 style={{ fontSize: 24, color: 'var(--maroon-dark)' }}>{t('manageChildren')}</h2>
-          <p style={{ color: 'var(--gray-500)', fontSize: 14 }}>{children.filter(c => c.isActive).length} active children</p>
-        </div>
-        <button className="btn btn-primary" onClick={openAdd}>+ {t('addChild')}</button>
+    <div style={{ padding:'20px 16px', maxWidth:700, margin:'0 auto' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+        <h2 style={{ fontSize:22, fontWeight:700, color:'var(--text)' }}>🧒 Manage Children</h2>
+        <button onClick={()=>setShowForm(!showForm)} style={{ padding:'10px 20px', background:'linear-gradient(135deg,var(--maroon),var(--maroon-light))', border:'none', borderRadius:12, color:'#fff', cursor:'pointer', fontWeight:600, fontSize:14 }}>
+          {showForm ? '✕ Cancel' : '+ Register Child'}
+        </button>
       </div>
 
-      <div className="card">
-        <div className="table-wrapper">
-          {children.length === 0 ? (
-            <div className="empty-state"><div className="empty-icon">👧</div><h4>No children registered yet.</h4></div>
-          ) : (
-            <table>
-              <thead><tr>
-                <th>{t('childName')}</th><th>{t('grade')}</th><th>{t('gradeTeacher')}</th>
-                <th>{t('parentAccount')}</th><th>{t('paymentStatus')}</th><th>{t('status')}</th><th>{t('actions')}</th>
-              </tr></thead>
-              <tbody>
-                {children.map((c) => (
-                  <tr key={c._id} style={{ opacity: c.isActive ? 1 : 0.5 }}>
-                    <td><strong>{c.name}</strong></td>
-                    <td><span className="badge badge-maroon">{c.grade}</span></td>
-                    <td>
-                      <div style={{ fontSize: 13 }}>{c.gradeTeacher}</div>
-                      <div className="text-xs text-muted">{c.gradeTeacherPhone}</div>
-                    </td>
-                    <td>
-                      <div style={{ fontSize: 13 }}>{c.parent?.name}</div>
-                      <div className="text-xs text-muted">{c.parent?.email}</div>
-                    </td>
-                    <td>
-                      <span className={`badge ${c.paymentStatus === 'paid' ? 'badge-success' : c.paymentStatus === 'expired' ? 'badge-warning' : 'badge-danger'}`}>
-                        {c.paymentStatus}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge ${c.isActive ? 'badge-success' : 'badge-default'}`}>
-                        {c.isActive ? 'Active' : 'Removed'}
-                      </span>
-                    </td>
-                    <td>
-                      {c.isActive && (
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="btn btn-sm btn-secondary" onClick={() => openEdit(c)}>{t('edit')}</button>
-                          <button className="btn btn-sm btn-gold" onClick={() => openResult(c)}>📋 Result</button>
-                          <button className="btn btn-sm btn-danger" onClick={() => openRemove(c)}>✕</button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+      {/* Register Form */}
+      {showForm && (
+        <form onSubmit={submit} style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:18, padding:24, marginBottom:24, display:'flex', flexDirection:'column', gap:14 }}>
+          <h3 style={{ fontSize:17, fontWeight:700, color:'var(--text)', marginBottom:4 }}>Register New Student</h3>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div>
+              <label style={{ fontSize:12, color:'var(--text-muted)', marginBottom:4, display:'block' }}>Full Name *</label>
+              <input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="Child's full name" required style={inputStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:'var(--text-muted)', marginBottom:4, display:'block' }}>Grade / Class *</label>
+              <input value={form.grade} onChange={e=>setForm(p=>({...p,grade:e.target.value}))} placeholder="e.g. Grade 5, Form 2" required style={inputStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:'var(--text-muted)', marginBottom:4, display:'block' }}>Student ID (auto-generated)</label>
+              <div style={{ display:'flex', gap:8 }}>
+                <input value={form.studentId} onChange={e=>setForm(p=>({...p,studentId:e.target.value}))} style={inputStyle} />
+                <button type="button" onClick={()=>setForm(p=>({...p,studentId:generateStudentId()}))} style={{ padding:'0 12px', background:'var(--bg-elevated)', border:'1px solid var(--border)', borderRadius:10, color:'var(--text-muted)', cursor:'pointer', fontSize:12, whiteSpace:'nowrap' }}>🔄</button>
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:'var(--text-muted)', marginBottom:4, display:'block' }}>Parent Email</label>
+              <input value={form.parentEmail} onChange={e=>setForm(p=>({...p,parentEmail:e.target.value}))} placeholder="parent@email.com" type="email" style={inputStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:'var(--text-muted)', marginBottom:4, display:'block' }}>Date of Birth</label>
+              <input value={form.dob} onChange={e=>setForm(p=>({...p,dob:e.target.value}))} type="date" style={inputStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize:12, color:'var(--text-muted)', marginBottom:4, display:'block' }}>Gender</label>
+              <select value={form.gender} onChange={e=>setForm(p=>({...p,gender:e.target.value}))} style={inputStyle}>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </div>
+          </div>
+          <button type="submit" disabled={submitting} style={{ padding:'13px', background:'linear-gradient(135deg,var(--maroon),var(--maroon-light))', border:'none', borderRadius:12, color:'#fff', cursor:'pointer', fontWeight:700, fontSize:15 }}>
+            {submitting ? 'Registering...' : '✓ Register Student'}
+          </button>
+        </form>
+      )}
+
+      {/* Search */}
+      <div style={{ marginBottom:16 }}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search by name, ID, or grade..." style={{ ...inputStyle, width:'100%' }} />
       </div>
 
-      {/* Add / Edit Modal */}
-      {(modal === 'add' || modal === 'edit') && (
-        <div className="modal-overlay" onClick={() => setModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>{modal === 'add' ? '➕ ' + t('addChild') : '✏️ ' + t('editChild')}</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setModal(null)}>✕</button>
-            </div>
-            <ChildForm />
-          </div>
+      {/* Children list */}
+      {loading ? (
+        <div style={{ display:'flex', justifyContent:'center', padding:40 }}><div className="spinner spinner-dark" /></div>
+      ) : filtered.length===0 ? (
+        <div style={{ textAlign:'center', padding:'40px 20px', color:'var(--text-muted)' }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>🧒</div>
+          <div style={{ fontSize:16, fontWeight:600, color:'var(--text)' }}>{search ? 'No matches found' : 'No children registered yet'}</div>
         </div>
-      )}
-
-      {/* Upload Result Modal */}
-      {modal === 'result' && (
-        <div className="modal-overlay" onClick={() => setModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>📋 {t('uploadResult')} — {selected?.name}</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setModal(null)}>✕</button>
-            </div>
-            <form onSubmit={uploadResult}>
-              <div className="modal-body">
-                <div style={{ background: 'var(--maroon-pale)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: 'var(--maroon)' }}>
-                  ℹ️ Results will be locked if parent has not paid school fees.
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          <p style={{ fontSize:12, color:'var(--text-muted)', marginBottom:4 }}>{filtered.length} student{filtered.length!==1?'s':''}</p>
+          {filtered.map(child => (
+            <div key={child._id} style={cardStyle}>
+              <div style={{ position:'relative', flexShrink:0 }}>
+                <div style={{ width:58, height:58, borderRadius:'50%', overflow:'hidden', background:'linear-gradient(135deg,#D4A843,#F0C86A)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, fontWeight:700, color:'#000' }}>
+                  {child.profilePic
+                    ? <img src={child.profilePic} style={{width:'100%',height:'100%',objectFit:'cover'}} alt={child.name} onError={e=>e.target.style.display='none'}/>
+                    : child.name?.[0]?.toUpperCase()}
                 </div>
-                <div className="form-group">
-                  <label className="form-label">{t('resultTitle')} *</label>
-                  <input type="text" className="form-input" value={resultForm.title} onChange={(e) => setResultForm({ ...resultForm, title: e.target.value })} placeholder="e.g. End of Term 1 Results" required />
+                <button onClick={()=>photoRefs.current[child._id]?.click()} style={{ position:'absolute', bottom:0, right:0, width:22, height:22, borderRadius:'50%', background:'var(--maroon)', border:'2px solid var(--bg-card)', fontSize:10, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff' }}>✏</button>
+              </div>
+              <input ref={r=>photoRefs.current[child._id]=r} type="file" accept="image/*" onChange={e=>handleChildPhoto(e,child._id)} style={{display:'none'}} />
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:700, fontSize:15, color:'var(--text)' }}>{child.name}</div>
+                <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:3 }}>
+                  Grade: <span style={{color:'var(--gold)'}}>{child.grade}</span>
+                  {child.studentId && <> · ID: <span style={{color:'var(--gold)',fontFamily:'monospace'}}>{child.studentId}</span></>}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                  <div className="form-group">
-                    <label className="form-label">{t('term')} *</label>
-                    <select className="form-select" value={resultForm.term} onChange={(e) => setResultForm({ ...resultForm, term: e.target.value })}>
-                      {[1,2,3].map((n) => <option key={n} value={n}>Term {n}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">{t('year')} *</label>
-                    <input type="number" className="form-input" value={resultForm.year} onChange={(e) => setResultForm({ ...resultForm, year: e.target.value })} min="2020" max="2030" />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">{t('uploadFile')} (PDF) *</label>
-                  <input type="file" className="form-input" accept=".pdf" onChange={(e) => setResultFile(e.target.files[0])} required />
-                </div>
+                {child.parent && <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>👤 {child.parent?.name||'No parent linked'}</div>}
               </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setModal(null)}>{t('cancel')}</button>
-                <button type="submit" className="btn btn-primary" disabled={saving}>
-                  {saving ? t('loading') : '⬆️ ' + t('uploadResult')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Remove Modal */}
-      {modal === 'remove' && (
-        <div className="modal-overlay" onClick={() => setModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
-            <div className="modal-header">
-              <h3>⚠️ {t('removeChild')}</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setModal(null)}>✕</button>
+              {childPhotoUploading===child._id && <div style={{ fontSize:11, color:'#25D366' }}>Uploading...</div>}
             </div>
-            <div className="modal-body">
-              <div className="alert alert-danger">
-                Are you sure you want to remove <strong>{selected?.name}</strong>? This action cannot be undone.
-              </div>
-              <div className="form-group">
-                <label className="form-label">{t('removeReason')}</label>
-                <input type="text" className="form-input" value={removeReason} onChange={(e) => setRemoveReason(e.target.value)} placeholder="e.g. Transferred to another school" />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setModal(null)}>{t('cancel')}</button>
-              <button className="btn btn-danger" onClick={removeChild} disabled={saving}>
-                {saving ? t('loading') : t('removeChild')}
-              </button>
-            </div>
-          </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
+
+const inputStyle = { padding:'10px 14px', background:'var(--bg-elevated)', border:'1px solid var(--border)', borderRadius:10, color:'var(--text)', fontSize:14, outline:'none', width:'100%' };

@@ -1,75 +1,107 @@
 // Peace Mindset School - Service Worker
-// Handles push notifications even when app is closed
+// Handles background push notifications on Android
 
-const CACHE_NAME = 'peace-mindset-v1';
+const CACHE_NAME = 'peace-mindset-v2';
+const STATIC_ASSETS = [
+  '/',
+  '/index.html',
+  '/logo.webp',
+];
 
-self.addEventListener('install', (e) => {
+// Install: cache static assets
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
+  );
   self.skipWaiting();
 });
 
-self.addEventListener('activate', (e) => {
-  e.waitUntil(clients.claim());
+// Activate: clean old caches
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    )
+  );
+  self.clients.claim();
 });
 
-// Handle push notifications
-self.addEventListener('push', (e) => {
-  if (!e.data) return;
+// Fetch: network-first, fallback to cache
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+  if (event.request.url.includes('/api/')) return; // Don't cache API calls
 
-  let data;
+  event.respondWith(
+    fetch(event.request)
+      .then(response => {
+        // Cache successful responses
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
+  );
+});
+
+// ─── Push Notifications ───────────────────────────────────────────────────────
+self.addEventListener('push', (event) => {
+  let data = {};
   try {
-    data = e.data.json();
-  } catch {
-    data = { title: 'Peace Mindset School', body: e.data.text() };
-  }
+    data = JSON.parse(event.data?.text() || '{}');
+  } catch {}
 
+  const title = data.title || 'Peace Mindset School';
   const options = {
     body: data.body || 'You have a new notification',
     icon: data.icon || '/logo.webp',
     badge: '/logo.webp',
     vibrate: [200, 100, 200],
-    data: { url: data.url || '/' },
+    data: { url: data.url || '/', timestamp: data.timestamp || Date.now() },
     actions: [
       { action: 'open', title: 'Open App' },
-      { action: 'dismiss', title: 'Dismiss' },
+      { action: 'close', title: 'Dismiss' },
     ],
     requireInteraction: false,
-    silent: false,
+    tag: 'peace-mindset-notification',
+    renotify: true,
   };
 
-  e.waitUntil(
-    self.registration.showNotification(data.title || 'Peace Mindset School', options)
-  );
+  event.waitUntil(self.registration.showNotification(title, options));
 });
 
-// Handle notification click
-self.addEventListener('notificationclick', (e) => {
-  e.notification.close();
+// ─── Notification Click ───────────────────────────────────────────────────────
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
 
-  if (e.action === 'dismiss') return;
+  if (event.action === 'close') return;
 
-  const url = e.notification.data?.url || '/';
+  const url = event.notification.data?.url || '/';
 
-  e.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // If app is already open, focus it
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      // Focus existing window if open
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
-          client.focus();
           client.navigate(url);
-          return;
+          return client.focus();
         }
       }
       // Open new window
-      if (clients.openWindow) {
-        return clients.openWindow(url);
-      }
+      if (clients.openWindow) return clients.openWindow(url);
     })
   );
 });
 
-// Background sync for messages
-self.addEventListener('sync', (e) => {
-  if (e.tag === 'sync-messages') {
-    e.waitUntil(Promise.resolve());
+// ─── Background Sync (for offline messages) ──────────────────────────────────
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'sync-messages') {
+    event.waitUntil(
+      // Notify all clients to retry sending queued messages
+      clients.matchAll().then(clientList =>
+        clientList.forEach(client => client.postMessage({ type: 'SYNC_MESSAGES' }))
+      )
+    );
   }
 });

@@ -1,15 +1,187 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../../store/useStore';
 import api from '../../utils/api';
 import { getSocket } from '../../utils/socket';
-import { compressImage, compressVideo, formatSize } from '../../utils/media';
+import { compressImage, compressVideo, formatSize, shareMedia, downloadMedia } from '../../utils/media';
 import toast from 'react-hot-toast';
 
-const EMOJIS = ['❤️','👍','😂','😮','😢','🙏'];
+const fmt = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
 
+function Avatar({ name, src, size = 40, online }) {
+  return (
+    <div style={{ position:'relative', flexShrink:0 }}>
+      <div style={{
+        width:size, height:size, borderRadius:'50%', overflow:'hidden',
+        background:'linear-gradient(135deg,#9B1826,#C02035)',
+        display:'flex', alignItems:'center', justifyContent:'center',
+        fontSize:size*0.38, fontWeight:700, color:'#fff',
+      }}>
+        {src ? <img src={src} alt={name} style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/> : (name?.[0]?.toUpperCase()||'?')}
+      </div>
+      {online !== undefined && (
+        <span style={{ position:'absolute', bottom:1, right:1, width:size*0.27, height:size*0.27, borderRadius:'50%', background:online?'#25D366':'#555', border:'2px solid #111B21' }} />
+      )}
+    </div>
+  );
+}
+
+// ── Message bubble ────────────────────────────────────────────────────────────
+function MsgBubble({ msg, isMe, onDelete, onShare, onDownload, onReact }) {
+  const [menu, setMenu] = useState(false);
+  const [imgFull, setImgFull] = useState(false);
+  const time = new Date(msg.createdAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  const isDeleted = msg.deletedForEveryone;
+
+  return (
+    <>
+      {imgFull && (
+        <div onClick={() => setImgFull(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.95)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
+          <img src={msg.mediaData} alt="" style={{ maxWidth:'95vw', maxHeight:'90vh', objectFit:'contain', borderRadius:8 }} />
+          <div style={{ position:'absolute', bottom:20, left:'50%', transform:'translateX(-50%)', display:'flex', gap:12 }}>
+            <button onClick={e=>{e.stopPropagation();downloadMedia(msg.mediaData,'image.jpg');}} style={shareBtnStyle}>⬇ Download</button>
+            <button onClick={e=>{e.stopPropagation();shareMedia(msg.mediaData,'image.jpg');}} style={shareBtnStyle}>↗ Share</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display:'flex', flexDirection:isMe?'row-reverse':'row', gap:6, alignItems:'flex-end', marginBottom:2, position:'relative' }}
+        onContextMenu={e=>{e.preventDefault();setMenu(!menu);}}>
+
+        {menu && (
+          <div style={{ position:'absolute', [isMe?'right':'left']:0, bottom:'100%', zIndex:50, background:'#233138', border:'1px solid rgba(255,255,255,0.1)', borderRadius:12, overflow:'hidden', minWidth:180, boxShadow:'0 8px 32px rgba(0,0,0,0.7)' }}>
+            {['❤️','👍','😂','😮','😢','🙏'].map(e => (
+              <button key={e} onClick={()=>{onReact(msg._id,e);setMenu(false);}} style={{...menuBtn,display:'inline-flex',padding:'10px 12px'}}>{e}</button>
+            ))}
+            <div style={{ height:1, background:'rgba(255,255,255,0.06)', margin:'2px 0' }} />
+            {msg.mediaData && !isDeleted && <>
+              <button onClick={()=>{onDownload(msg);setMenu(false);}} style={menuBtn}>⬇ Download</button>
+              <button onClick={()=>{onShare(msg);setMenu(false);}} style={menuBtn}>↗ Share</button>
+            </>}
+            <button onClick={()=>{onDelete(msg._id,false);setMenu(false);}} style={{...menuBtn,color:'#FC8181'}}>🗑 Delete for me</button>
+            {isMe && <button onClick={()=>{onDelete(msg._id,true);setMenu(false);}} style={{...menuBtn,color:'#FC8181'}}>🗑 Delete for everyone</button>}
+            <button onClick={()=>setMenu(false)} style={{...menuBtn,color:'#666'}}>✕ Cancel</button>
+          </div>
+        )}
+
+        <div style={{ maxWidth:'76%' }}>
+          <div style={{
+            padding: msg.mediaData && !isDeleted ? '4px' : '9px 13px',
+            borderRadius:18, borderBottomRightRadius:isMe?4:18, borderBottomLeftRadius:isMe?18:4,
+            background: isMe ? 'linear-gradient(135deg,#005C4B,#128C7E)' : 'rgba(255,255,255,0.07)',
+            border: isMe ? 'none' : '1px solid rgba(255,255,255,0.08)',
+          }}>
+            {isDeleted ? (
+              <p style={{ fontSize:13, color:'rgba(255,255,255,0.35)', fontStyle:'italic', margin:0, padding:'2px 4px' }}>🚫 This message was deleted</p>
+            ) : (
+              <>
+                {msg.messageType==='text' && <p style={{ fontSize:14.5, color:'#E9EDEF', lineHeight:1.55, margin:0, wordBreak:'break-word' }}>{msg.content}</p>}
+                {msg.messageType==='voice' && msg.mediaData && (
+                  <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:200, padding:'4px 6px' }}>
+                    <span>🎤</span>
+                    <audio controls src={msg.mediaData} style={{ flex:1, height:32 }} />
+                    {msg.duration && <span style={{ fontSize:10, color:'rgba(255,255,255,0.4)' }}>{fmt(msg.duration)}</span>}
+                  </div>
+                )}
+                {msg.messageType==='image' && msg.mediaData && (
+                  <div style={{ position:'relative' }}>
+                    <img src={msg.mediaData} alt="Photo" onClick={()=>setImgFull(true)}
+                      style={{ maxWidth:240, maxHeight:280, borderRadius:14, display:'block', cursor:'pointer', objectFit:'cover' }} />
+                    <button onClick={e=>{e.stopPropagation();shareMedia(msg.mediaData,'photo.jpg');}} style={floatBtn}>↗</button>
+                  </div>
+                )}
+                {msg.messageType==='video' && msg.mediaData && (
+                  <div style={{ position:'relative' }}>
+                    <video controls src={msg.mediaData} style={{ maxWidth:240, maxHeight:200, borderRadius:14, display:'block' }} />
+                    <button onClick={e=>{e.stopPropagation();shareMedia(msg.mediaData,'video.mp4');}} style={floatBtn}>↗</button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          {msg.reactions?.length>0 && (
+            <div style={{ display:'flex', gap:2, marginTop:2, flexWrap:'wrap', justifyContent:isMe?'flex-end':'flex-start' }}>
+              {Object.entries(msg.reactions.reduce((a,r)=>{a[r.emoji]=(a[r.emoji]||0)+1;return a;},{})).map(([em,cnt])=>(
+                <span key={em} onClick={()=>onReact(msg._id,em)} style={{ background:'rgba(255,255,255,0.08)', borderRadius:999, padding:'1px 6px', fontSize:12, cursor:'pointer' }}>{em}{cnt>1?' '+cnt:''}</span>
+              ))}
+            </div>
+          )}
+          <div style={{ display:'flex', alignItems:'center', gap:3, marginTop:2, [isMe?'justifyContent':'']:isMe?'flex-end':undefined, paddingLeft:4, paddingRight:4 }}>
+            <span style={{ fontSize:10.5, color:'rgba(255,255,255,0.3)' }}>{time}</span>
+            {isMe && <span style={{ fontSize:11, color:msg.isRead?'#53BDEB':'rgba(255,255,255,0.3)' }}>✓✓</span>}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+const menuBtn = { display:'flex', alignItems:'center', gap:8, width:'100%', padding:'10px 14px', background:'none', border:'none', color:'#E9EDEF', fontSize:13.5, cursor:'pointer', textAlign:'left' };
+const shareBtnStyle = { padding:'8px 20px', background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.25)', color:'#fff', borderRadius:999, cursor:'pointer', fontSize:13 };
+const floatBtn = { position:'absolute', top:6, right:6, background:'rgba(0,0,0,0.6)', border:'none', color:'#fff', borderRadius:'50%', width:28, height:28, cursor:'pointer', fontSize:12 };
+
+// ── Create Group Modal ───────────────────────────────────────────────────────
+function CreateGroupModal({ onClose, onCreated }) {
+  const [name, setName] = useState('');
+  const [desc, setDesc] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [parents, setParents] = useState([]);
+  const [selected, setSelected] = useState([]);
+
+  useEffect(() => {
+    api.get('/admin/parents').then(r => setParents(r.data.parents||[])).catch(()=>{});
+  }, []);
+
+  const create = async () => {
+    if (!name.trim()) { toast.error('Group name required'); return; }
+    setLoading(true);
+    try {
+      const r = await api.post('/groups', { name, description: desc, members: selected });
+      toast.success('Group created!');
+      onCreated(r.data.group);
+      onClose();
+    } catch { toast.error('Failed to create group'); }
+    finally { setLoading(false); }
+  };
+
+  const toggleParent = (id) => setSelected(p => p.includes(id) ? p.filter(x=>x!==id) : [...p, id]);
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div style={{ background:'#1F2C34', borderRadius:20, padding:24, width:'100%', maxWidth:420, maxHeight:'80vh', display:'flex', flexDirection:'column', gap:16 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <h3 style={{ color:'#E9EDEF', fontWeight:700, fontSize:18 }}>Create Group</h3>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'#8696A0', cursor:'pointer', fontSize:22 }}>✕</button>
+        </div>
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Group name *" style={inputStyle} />
+        <input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Description (optional)" style={inputStyle} />
+        <p style={{ fontSize:12, color:'#8696A0', marginBottom:-8 }}>Add parents to group:</p>
+        <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:6 }}>
+          {parents.map(p => (
+            <label key={p._id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background:'rgba(255,255,255,0.04)', borderRadius:10, cursor:'pointer', border:`1px solid ${selected.includes(p._id)?'rgba(37,211,102,0.4)':'transparent'}` }}>
+              <input type="checkbox" checked={selected.includes(p._id)} onChange={()=>toggleParent(p._id)} style={{ width:16, height:16, accentColor:'#25D366' }} />
+              <Avatar name={p.name} src={p.profilePic} size={32} />
+              <div>
+                <div style={{ fontSize:14, color:'#E9EDEF', fontWeight:500 }}>{p.name}</div>
+                <div style={{ fontSize:11, color:'#8696A0' }}>{p.email}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+        <button onClick={create} disabled={loading} style={{ padding:'13px', background:'linear-gradient(135deg,#00A884,#128C7E)', border:'none', borderRadius:12, color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer' }}>
+          {loading ? 'Creating...' : `✓ Create Group (${selected.length} members)`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const inputStyle = { padding:'11px 14px', background:'#2A3942', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, color:'#E9EDEF', fontSize:14, outline:'none', width:'100%' };
+
+// ── Main Admin Chat ──────────────────────────────────────────────────────────
 export default function AdminChat() {
   const { user } = useStore();
-  const [view, setView] = useState('list'); // 'list' | 'chat' | 'group' | 'newGroup'
+  const [view, setView] = useState('list'); // 'list'|'chat'|'group'
+  const [tab, setTab] = useState('direct'); // 'direct'|'groups'
   const [convs, setConvs] = useState([]);
   const [groups, setGroups] = useState([]);
   const [active, setActive] = useState(null);
@@ -17,353 +189,326 @@ export default function AdminChat() {
   const [messages, setMessages] = useState([]);
   const [groupMessages, setGroupMessages] = useState([]);
   const [input, setInput] = useState('');
-  const [onlineUsers, setOnlineUsers] = useState(new Set());
-  const [loading, setLoading] = useState(true);
   const [recording, setRecording] = useState(false);
   const [recordSec, setRecordSec] = useState(0);
-  const [uploading, setUploading] = useState(null);
-  const [selectedMsg, setSelectedMsg] = useState(null);
-  const [newGroup, setNewGroup] = useState({ name:'', desc:'', members:[] });
-  const [parents, setParents] = useState([]);
+  const [onlineUsers, setOnlineUsers] = useState(new Set());
+  const [loadingConvs, setLoadingConvs] = useState(true);
+  const [loadingMsgs, setLoadingMsgs] = useState(false);
+  const [mediaProgress, setMediaProgress] = useState(null);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [typingParents, setTypingParents] = useState({});
   const msgsBox = useRef(null);
   const mr = useRef(null);
   const chunks = useRef([]);
   const timer = useRef(null);
   const fileRef = useRef(null);
 
-  const scrollBottom = () => setTimeout(() => { if(msgsBox.current) msgsBox.current.scrollTop=msgsBox.current.scrollHeight; }, 60);
+  const scrollBottom = () => setTimeout(() => msgsBox.current && (msgsBox.current.scrollTop = msgsBox.current.scrollHeight), 50);
 
-  const loadAll = async () => {
-    try {
-      const [c, g, p] = await Promise.all([
-        api.get('/chat/admin/conversations'),
-        api.get('/groups'),
-        api.get('/admin/parents'),
-      ]);
-      setConvs(c.data.conversations||[]);
-      setGroups(g.data.groups||[]);
-      setParents(p.data.parents||[]);
-    } catch {} finally { setLoading(false); }
+  const loadConvs = async () => {
+    try { const r = await api.get('/chat/admin/conversations'); setConvs(r.data.conversations||[]); }
+    catch {} finally { setLoadingConvs(false); }
+  };
+  const loadGroups = async () => {
+    try { const r = await api.get('/groups'); setGroups(r.data.groups||[]); } catch {}
   };
 
   useEffect(() => {
-    loadAll();
+    loadConvs(); loadGroups();
     const s = getSocket();
     if (s) {
-      s.on('new_message', (msg) => { setMessages(p=>p.find(m=>m._id===msg._id)?p:[...p,msg]); loadAll(); scrollBottom(); });
-      s.on('group_message', ({ message, groupId }) => { if(activeGroup?._id===groupId) setGroupMessages(p=>p.find(m=>m._id===message._id)?p:[...p,message]); loadAll(); scrollBottom(); });
-      s.on('user_online', ({userId,online}) => setOnlineUsers(p=>{ const n=new Set(p); online?n.add(userId):n.delete(userId); return n; }));
+      s.on('new_message', (msg) => {
+        if (active && msg.parentId === active._id) setMessages(p => p.find(m=>m._id===msg._id)?p:[...p,msg]);
+        loadConvs(); scrollBottom();
+      });
+      s.on('new_group_message', (msg) => {
+        if (activeGroup && msg.group===activeGroup._id) setGroupMessages(p => p.find(m=>m._id===msg._id)?p:[...p,msg]);
+        loadGroups(); scrollBottom();
+      });
+      s.on('message_deleted', ({msgId, forEveryone}) => {
+        setMessages(p => p.map(m => m._id===msgId ? (forEveryone?{...m,deletedForEveryone:true,mediaData:null}:null):m).filter(Boolean));
+      });
+      s.on('user_online', ({userId, online}) => setOnlineUsers(p => { const n=new Set(p); online?n.add(userId):n.delete(userId); return n; }));
       s.on('online_users', ({userIds}) => setOnlineUsers(new Set(userIds)));
-      s.on('message_deleted', ({msgId,forEveryone}) => { if(forEveryone) setMessages(p=>p.map(m=>m._id===msgId?{...m,deletedForEveryone:true,content:'This message was deleted',mediaData:null}:m)); else setMessages(p=>p.filter(m=>m._id!==msgId)); });
-      s.on('group_created', () => loadAll());
+      s.on('user_typing', ({parentId, isTyping}) => setTypingParents(p => ({...p, [parentId]:isTyping})));
     }
-    return () => { ['new_message','group_message','user_online','online_users','message_deleted','group_created'].forEach(e=>s?.off(e)); };
-  }, [activeGroup]);
+    return () => { s?.off('new_message'); s?.off('new_group_message'); s?.off('message_deleted'); s?.off('user_online'); s?.off('online_users'); s?.off('user_typing'); };
+  }, [active, activeGroup]);
 
   useEffect(() => { scrollBottom(); }, [messages, groupMessages]);
 
   const openChat = async (parent) => {
-    setActive(parent); setView('chat');
-    try { const r=await api.get(`/chat/${parent._id}`); setMessages(r.data.messages||[]); } catch {}
+    setActive(parent); setView('chat'); setActiveGroup(null); setLoadingMsgs(true);
+    try { const r = await api.get(`/chat/${parent._id}`); setMessages(r.data.messages||[]); }
+    catch {} finally { setLoadingMsgs(false); }
   };
 
   const openGroup = async (group) => {
-    setActiveGroup(group); setView('group');
-    try { const r=await api.get(`/groups/${group._id}/messages`); setGroupMessages(r.data.messages||[]); } catch {}
-  };
-
-  const send = async (payload) => {
+    setActiveGroup(group); setView('group'); setActive(null); setLoadingMsgs(true);
     const s = getSocket();
-    if (view==='group' && activeGroup) {
-      try {
-        const r = await api.post(`/groups/${activeGroup._id}/messages`, payload);
-        setGroupMessages(p=>[...p, r.data.message]);
-        scrollBottom();
-      } catch { toast.error('Failed'); }
-    } else if (active) {
-      try {
-        if (s?.connected) s.emit('send_message', { senderId:user._id, senderRole:'admin', parentId:active._id, ...payload });
-        else { const r=await api.post('/chat',{parentId:active._id,...payload}); setMessages(p=>[...p,r.data.message]); }
-        scrollBottom();
-      } catch { toast.error('Failed'); }
-    }
+    s?.emit('join_group', group._id);
+    try { const r = await api.get(`/groups/${group._id}/messages`); setGroupMessages(r.data.messages||[]); }
+    catch {} finally { setLoadingMsgs(false); }
   };
 
-  const sendText = () => { if(!input.trim()) return; send({content:input.trim(),messageType:'text'}); setInput(''); };
-  const handleKey = e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendText();} };
+  const send = async (payload, isGroup = false) => {
+    const s = getSocket();
+    try {
+      if (isGroup && activeGroup) {
+        if (s?.connected) s.emit('send_group_message', { groupId:activeGroup._id, senderId:user._id, ...payload });
+        else { const r = await api.post(`/groups/${activeGroup._id}/messages`, payload); setGroupMessages(p=>[...p,r.data.message]); }
+      } else if (active) {
+        if (s?.connected) {
+          s.emit('send_message', { senderId:user._id, senderRole:'admin', parentId:active._id, ...payload });
+          setMessages(p => [...p,{ _id:Date.now().toString(), sender:{_id:user._id,name:user.name,profilePic:user.profilePic}, senderRole:'admin', parentId:active._id, createdAt:new Date().toISOString(), isRead:false, reactions:[], ...payload }]);
+        } else { const r = await api.post('/chat', { parentId:active._id, ...payload }); setMessages(p=>[...p,r.data.message]); }
+      }
+      setInput(''); scrollBottom();
+    } catch { toast.error('Send failed'); }
+    finally { setMediaProgress(null); }
+  };
+
+  const sendText = () => {
+    if (!input.trim()) return;
+    const isGroup = view === 'group';
+    send({ content:input.trim(), messageType:'text' }, isGroup);
+    setInput('');
+  };
 
   const startRec = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({audio:true});
-      mr.current = new MediaRecorder(stream,{mimeType:'audio/webm'});
-      chunks.current=[];
-      mr.current.ondataavailable=e=>chunks.current.push(e.data);
-      mr.current.onstop=()=>{
-        const blob=new Blob(chunks.current,{type:'audio/webm'});
-        const rd=new FileReader();
-        rd.onload=()=>send({content:'🎤 Voice message',messageType:'voice',mediaData:rd.result,mediaMimeType:'audio/webm',duration:recordSec});
+      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+      mr.current = new MediaRecorder(stream, { mimeType:'audio/webm' });
+      chunks.current = [];
+      mr.current.ondataavailable = e => chunks.current.push(e.data);
+      mr.current.onstop = () => {
+        const blob = new Blob(chunks.current, { type:'audio/webm' });
+        const rd = new FileReader();
+        const isGroup = view === 'group';
+        rd.onload = () => send({ content:'🎤 Voice message', messageType:'voice', mediaData:rd.result, mediaMimeType:'audio/webm', duration:recordSec }, isGroup);
         rd.readAsDataURL(blob);
-        stream.getTracks().forEach(t=>t.stop());
-        setRecordSec(0);
+        stream.getTracks().forEach(t=>t.stop()); setRecordSec(0);
       };
       mr.current.start(); setRecording(true);
-      timer.current=setInterval(()=>setRecordSec(n=>n+1),1000);
+      timer.current = setInterval(() => setRecordSec(n=>n+1), 1000);
     } catch { toast.error('Microphone not available'); }
   };
 
   const stopRec = () => { if(mr.current?.state==='recording'){mr.current.stop();clearInterval(timer.current);setRecording(false);} };
+  const cancelRec = () => { if(mr.current?.state==='recording'){mr.current.ondataavailable=null;mr.current.onstop=null;mr.current.stop();clearInterval(timer.current);setRecording(false);setRecordSec(0);} };
 
   const handleFile = async (e) => {
-    const f=e.target.files[0]; if(!f) return;
-    const isImage=f.type.startsWith('image/'); const isVideo=f.type.startsWith('video/');
-    if(!isImage&&!isVideo){toast.error('Only photos and videos');return;}
+    const f = e.target.files[0]; if(!f) return;
+    const isImg = f.type.startsWith('image/'), isVid = f.type.startsWith('video/');
+    if(!isImg&&!isVid){toast.error('Images and videos only');return;}
     if(f.size>50*1024*1024){toast.error('Max 50MB');return;}
-    setUploading({name:f.name});
+    const isGroup = view === 'group';
     try {
-      if(isImage){
-        const {data,sizeKB}=await compressImage(f,0.8,0.85);
-        await send({content:`📷 Photo (${formatSize(sizeKB)})`,messageType:'image',mediaData:data,mediaMimeType:'image/jpeg'});
-        toast.success(`Photo sent! (${formatSize(sizeKB)})`);
+      if(isImg){
+        setMediaProgress({progress:30,label:'Compressing photo...'});
+        const {data,sizeKB,originalKB} = await compressImage(f,1);
+        setMediaProgress({progress:80,label:'Sending...'});
+        toast.success(`Photo: ${formatSize(originalKB)} → ${formatSize(sizeKB)}`);
+        await send({content:'📷 Photo',messageType:'image',mediaData:data,mediaMimeType:'image/jpeg'},isGroup);
       } else {
-        const {data,sizeKB}=await compressVideo(f);
-        await send({content:`🎥 Video (${formatSize(sizeKB)})`,messageType:'video',mediaData:data,mediaMimeType:f.type});
-        toast.success(`Video sent! (${formatSize(sizeKB)})`);
+        setMediaProgress({progress:10,label:'Processing video...'});
+        const {data,sizeKB,originalKB,compressed,mimeType} = await compressVideo(f,15);
+        setMediaProgress({progress:85,label:'Sending video...'});
+        if(compressed) toast.success(`Video: ${formatSize(originalKB)} → ${formatSize(sizeKB)}`);
+        await send({content:'🎥 Video',messageType:'video',mediaData:data,mediaMimeType:mimeType||f.type},isGroup);
       }
-    } catch { toast.error('Failed'); } finally { setUploading(null); e.target.value=''; }
+    } catch { toast.error('Media failed'); setMediaProgress(null); }
+    e.target.value='';
   };
 
-  const deleteMsg = async (msg, forEveryone) => {
+  const handleDelete = async (msgId, forEveryone) => {
     try {
-      if(view==='group') {
-        await api.delete(`/groups/${activeGroup._id}/messages/${msg._id}`,{data:{deleteForEveryone:forEveryone}});
-        if(forEveryone) setGroupMessages(p=>p.map(m=>m._id===msg._id?{...m,deletedForEveryone:true,content:'This message was deleted',mediaData:null}:m));
-        else setGroupMessages(p=>p.filter(m=>m._id!==msg._id));
-      } else {
-        await api.delete(`/chat/${msg._id}`,{data:{deleteForEveryone:forEveryone}});
-        if(forEveryone) setMessages(p=>p.map(m=>m._id===msg._id?{...m,deletedForEveryone:true,content:'This message was deleted',mediaData:null}:m));
-        else setMessages(p=>p.filter(m=>m._id!==msg._id));
-      }
-      setSelectedMsg(null);
-    } catch { toast.error('Failed'); }
+      await api.delete(`/chat/${msgId}`, { data:{deleteForEveryone:forEveryone} });
+      if(forEveryone) setMessages(p=>p.map(m=>m._id===msgId?{...m,deletedForEveryone:true,mediaData:null}:m));
+      else setMessages(p=>p.filter(m=>m._id!==msgId));
+      toast.success(forEveryone?'Deleted for everyone':'Deleted for you');
+    } catch { toast.error('Delete failed'); }
   };
 
-  const createGroup = async () => {
-    if(!newGroup.name.trim()){toast.error('Enter group name');return;}
-    try {
-      await api.post('/groups',{name:newGroup.name,description:newGroup.desc,memberIds:newGroup.members});
-      toast.success('Group created!');
-      setNewGroup({name:'',desc:'',members:[]});
-      setView('list'); loadAll();
-    } catch { toast.error('Failed to create group'); }
+  const handleReact = async (msgId, emoji) => {
+    try { await api.put(`/chat/${msgId}/react`,{emoji}); if(active){const r=await api.get(`/chat/${active._id}`);setMessages(r.data.messages||[]);} } catch {}
   };
 
-  const fmt = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
-  const isOnline = id => onlineUsers.has(id?.toString());
-  const msgList = view==='group' ? groupMessages : messages;
-  const activeTitle = view==='group' ? activeGroup?.name : active?.name;
-  const isActiveOnline = view==='group' ? false : isOnline(active?._id);
+  const isOnline = (id) => onlineUsers.has(id?.toString());
+  const currentMsgs = view==='group' ? groupMessages : messages;
 
-  const MsgBubble = ({msg}) => {
-    const isMe = msg.sender?._id===user._id||msg.sender===user._id;
-    const time = new Date(msg.createdAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-    const isDeleted = msg.deletedForEveryone;
+  // ─── CHAT PANEL ──────────────────────────────────────────────────────────
+  const ChatPanel = () => {
+    const isGroup = view === 'group';
+    const chatTarget = isGroup ? activeGroup : active;
+    const isTyping = !isGroup && active && typingParents[active._id];
+
     return (
-      <div style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start',marginBottom:3,paddingLeft:isMe?'12%':'0',paddingRight:isMe?'0':'12%'}}>
-        {!isMe&&view==='group'&&(
-          <div style={{width:26,height:26,borderRadius:'50%',background:'linear-gradient(135deg,#6B0F1A,#A52030)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:'#fff',flexShrink:0,alignSelf:'flex-end',marginRight:6}}>
-            {msg.sender?.name?.[0]?.toUpperCase()||'?'}
-          </div>
-        )}
-        <div onContextMenu={e=>{e.preventDefault();setSelectedMsg(msg);}} onTouchStart={e=>{const t=setTimeout(()=>setSelectedMsg(msg),500);e.currentTarget._t=t;}} onTouchEnd={e=>clearTimeout(e.currentTarget._t)}>
-          {view==='group'&&!isMe&&<div style={{fontSize:11,color:'#D4A843',marginBottom:2,paddingLeft:4}}>{msg.sender?.name}</div>}
-          <div style={{padding:isDeleted?'8px 12px':msg.messageType==='text'?'8px 12px':'5px',borderRadius:14,borderTopLeftRadius:!isMe?4:14,borderTopRightRadius:isMe?4:14,background:isMe?'linear-gradient(135deg,#6B0F1A,#A52030)':'rgba(255,255,255,0.07)',border:isMe?'none':'1px solid rgba(255,255,255,0.07)',boxShadow:isMe?'0 1px 6px rgba(155,24,38,0.25)':'none'}}>
-            {isDeleted ? <p style={{fontSize:13,color:'rgba(255,255,255,0.3)',fontStyle:'italic',margin:0}}>🚫 This message was deleted</p> : <>
-              {msg.messageType==='text'&&<p style={{fontSize:14,color:isMe?'#fff':'#E8E8F4',lineHeight:1.55,margin:0,wordBreak:'break-word'}}>{msg.content}</p>}
-              {msg.messageType==='voice'&&msg.mediaData&&(<div style={{display:'flex',alignItems:'center',gap:8,minWidth:180}}><span style={{fontSize:18}}>🎤</span><audio controls src={msg.mediaData} style={{flex:1,height:32,maxWidth:160}}/></div>)}
-              {msg.messageType==='image'&&msg.mediaData&&(<img src={msg.mediaData} alt="Photo" style={{maxWidth:220,maxHeight:240,borderRadius:10,display:'block',cursor:'pointer',objectFit:'cover'}} onClick={()=>window.open(msg.mediaData,'_blank')}/>)}
-              {msg.messageType==='video'&&msg.mediaData&&(<video controls src={msg.mediaData} style={{maxWidth:220,maxHeight:180,borderRadius:10,display:'block'}} playsInline/>)}
-            </>}
-            <div style={{display:'flex',justifyContent:'flex-end',alignItems:'center',gap:3,marginTop:2}}>
-              <span style={{fontSize:10,color:isMe?'rgba(255,255,255,0.5)':'rgba(255,255,255,0.28)'}}>{time}</span>
-              {isMe&&<span style={{fontSize:11,color:'rgba(255,255,255,0.5)'}}>✓✓</span>}
+      <div style={{ display:'flex', flexDirection:'column', height:'100%' }}>
+        {/* Chat header */}
+        <div style={{ padding:'10px 14px', background:'#1F2C34', borderBottom:'1px solid rgba(255,255,255,0.06)', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
+          <button onClick={()=>{setView('list');scrollBottom();}} style={{ background:'none',border:'none',color:'#8696A0',cursor:'pointer',fontSize:18,padding:'4px 8px',marginLeft:-8 }}>←</button>
+          <Avatar name={isGroup?(chatTarget?.name||'G'):(chatTarget?.name||'?')} size={42} online={isGroup?undefined:isOnline(chatTarget?._id)} />
+          <div style={{ flex:1 }}>
+            <div style={{ fontWeight:600, fontSize:15, color:'#E9EDEF' }}>{isGroup?`👥 ${chatTarget?.name}`:chatTarget?.name||'Parent'}</div>
+            <div style={{ fontSize:11, color:isTyping?'#25D366':'#8696A0', marginTop:1 }}>
+              {isGroup ? `${chatTarget?.members?.length||0} members` : isTyping ? '✍ typing...' : isOnline(chatTarget?._id)?'● Online':'○ Offline'}
             </div>
           </div>
-          {msg.reactions?.length>0&&<div style={{display:'flex',gap:2,marginTop:2,justifyContent:isMe?'flex-end':'flex-start'}}>{[...new Set(msg.reactions.map(r=>r.emoji))].map((e,i)=><span key={i} style={{background:'rgba(255,255,255,0.08)',borderRadius:999,padding:'2px 5px',fontSize:12}}>{e}</span>)}</div>}
+          <input ref={fileRef} type="file" accept="image/*,video/*" onChange={handleFile} style={{display:'none'}} />
+          <button onClick={()=>fileRef.current?.click()} style={{ background:'none',border:'none',color:'#8696A0',cursor:'pointer',fontSize:18 }}>📎</button>
+        </div>
+
+        {/* Messages */}
+        <div ref={msgsBox} style={{ flex:1, overflowY:'auto', padding:'12px', backgroundImage:`url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none'%3E%3Cg fill='%23ffffff' fill-opacity='0.015'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`, WebkitOverflowScrolling:'touch', display:'flex', flexDirection:'column', gap:4 }}>
+          {loadingMsgs ? (
+            <div style={{ display:'flex', justifyContent:'center', padding:40 }}><div className="spinner spinner-dark" /></div>
+          ) : currentMsgs.length===0 ? (
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'60px 20px', textAlign:'center' }}>
+              <div style={{ fontSize:56, marginBottom:12 }}>💬</div>
+              <div style={{ fontSize:15, fontWeight:600, color:'#E9EDEF' }}>No messages yet</div>
+              <div style={{ fontSize:12, color:'#8696A0', marginTop:6 }}>Start the conversation</div>
+            </div>
+          ) : currentMsgs.map(msg => {
+            const isMe = msg.sender?._id===user._id||msg.sender===user._id;
+            return (
+              <MsgBubble key={msg._id} msg={msg} isMe={isMe}
+                onDelete={handleDelete} onShare={m=>shareMedia(m.mediaData,m.messageType==='image'?'photo.jpg':'video.mp4')}
+                onDownload={m=>downloadMedia(m.mediaData,m.messageType==='image'?'photo.jpg':'video.mp4')}
+                onReact={handleReact}
+              />
+            );
+          })}
+          <div style={{ height:8 }} />
+        </div>
+
+        {/* Media progress */}
+        {mediaProgress && (
+          <div style={{ margin:'0 12px', padding:'8px 12px', background:'rgba(37,211,102,0.08)', border:'1px solid rgba(37,211,102,0.2)', borderRadius:10, display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ flex:1, height:3, background:'rgba(255,255,255,0.08)', borderRadius:2, overflow:'hidden' }}>
+              <div style={{ height:'100%', width:`${mediaProgress.progress}%`, background:'#25D366', transition:'width 0.3s' }} />
+            </div>
+            <span style={{ fontSize:11, color:'#25D366' }}>{mediaProgress.label}</span>
+          </div>
+        )}
+
+        {/* Recording bar */}
+        {recording && (
+          <div style={{ margin:'0 12px', padding:'8px 12px', background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.25)', borderRadius:10, display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
+            <div style={{ width:9,height:9,borderRadius:'50%',background:'#EF4444',animation:'pulse 1s infinite' }} />
+            <span style={{ fontSize:13,color:'#FC8181',fontWeight:600,flex:1 }}>🎤 {fmt(recordSec)}</span>
+            <button onClick={cancelRec} style={{ padding:'4px 10px',borderRadius:8,background:'transparent',border:'1px solid rgba(239,68,68,0.4)',color:'#FC8181',fontSize:12,cursor:'pointer' }}>✕</button>
+            <button onClick={stopRec} style={{ padding:'4px 12px',borderRadius:8,background:'#EF4444',border:'none',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer' }}>⬛ Send</button>
+          </div>
+        )}
+
+        {/* Input */}
+        <div style={{ padding:'8px 12px 14px', background:'#1F2C34', borderTop:'1px solid rgba(255,255,255,0.05)', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'flex-end', gap:8 }}>
+            <textarea value={input} onChange={e=>setInput(e.target.value)}
+              onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendText();}}}
+              placeholder={`Message ${isGroup?activeGroup?.name:active?.name||''}...`}
+              rows={1} style={{ flex:1, padding:'10px 14px', background:'#2A3942', border:'1.5px solid rgba(255,255,255,0.06)', borderRadius:24, resize:'none', outline:'none', color:'#E9EDEF', fontSize:'16px', lineHeight:1.5, maxHeight:120 }}
+            />
+            {input.trim() ? (
+              <button onClick={sendText} style={sendBtn}>➤</button>
+            ) : (
+              <button onMouseDown={startRec} onMouseUp={stopRec} onTouchStart={e=>{e.preventDefault();startRec();}} onTouchEnd={e=>{e.preventDefault();stopRec();}}
+                style={{...sendBtn, background:recording?'#EF4444':'linear-gradient(135deg,#00A884,#128C7E)', boxShadow:recording?'0 0 18px rgba(239,68,68,0.5)':'0 2px 12px rgba(37,211,102,0.3)'}}>🎤</button>
+            )}
+          </div>
         </div>
       </div>
     );
   };
 
-  return (
-    <div style={{position:'fixed',top:'var(--header-height)',left:0,right:0,bottom:0,display:'flex',flexDirection:'column',background:'#0D0D14'}}>
-      {/* New Group Modal */}
-      {view==='newGroup' && (
-        <div style={{flex:1,overflowY:'auto',padding:'16px'}}>
-          <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
-            <button onClick={()=>setView('list')} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',fontSize:22,cursor:'pointer'}}>‹</button>
-            <h3 style={{fontFamily:'var(--font-display)',fontSize:20,color:'var(--text)'}}>New Group</h3>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Group Name *</label>
-            <input className="form-input" value={newGroup.name} onChange={e=>setNewGroup({...newGroup,name:e.target.value})} placeholder="e.g. Grade 7 Parents" />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Description</label>
-            <input className="form-input" value={newGroup.desc} onChange={e=>setNewGroup({...newGroup,desc:e.target.value})} placeholder="What is this group for?" />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Add Parents ({newGroup.members.length} selected)</label>
-            <div style={{maxHeight:300,overflowY:'auto',background:'var(--bg-elevated)',borderRadius:10,border:'1px solid var(--border)'}}>
-              {parents.map(p=>(
-                <div key={p._id} onClick={()=>setNewGroup(g=>({...g,members:g.members.includes(p._id)?g.members.filter(id=>id!==p._id):[...g.members,p._id]}))} style={{padding:'11px 14px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:12,cursor:'pointer',background:newGroup.members.includes(p._id)?'rgba(155,24,38,0.1)':'transparent'}}>
-                  <div style={{width:34,height:34,borderRadius:'50%',background:'linear-gradient(135deg,#6B0F1A,#A52030)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:700,color:'#fff',flexShrink:0}}>{p.name?.[0]?.toUpperCase()}</div>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:600,fontSize:13.5,color:'var(--text)'}}>{p.name}</div>
-                    <div style={{fontSize:11.5,color:'var(--text-muted)'}}>{p.email}</div>
+  // ─── CONVERSATION LIST ────────────────────────────────────────────────────
+  const ListPanel = () => (
+    <div style={{ display:'flex', flexDirection:'column', height:'100%' }}>
+      {/* Header */}
+      <div style={{ padding:'12px 16px 0', background:'#111B21', flexShrink:0 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+          <h2 style={{ color:'#E9EDEF', fontSize:20, fontWeight:700 }}>Chats</h2>
+          <button onClick={() => setShowCreateGroup(true)} style={{ background:'rgba(37,211,102,0.15)', border:'1px solid rgba(37,211,102,0.3)', color:'#25D366', borderRadius:999, padding:'6px 14px', cursor:'pointer', fontSize:13, fontWeight:600 }}>+ Group</button>
+        </div>
+        {/* Tabs */}
+        <div style={{ display:'flex', borderBottom:'1px solid rgba(255,255,255,0.08)', marginBottom:0 }}>
+          {[['direct','Direct'],['groups','Groups']].map(([k,l]) => (
+            <button key={k} onClick={()=>setTab(k)} style={{ flex:1, padding:'10px 0', background:'none', border:'none', color:tab===k?'#25D366':'#8696A0', fontSize:13, fontWeight:tab===k?700:400, cursor:'pointer', borderBottom:tab===k?'2px solid #25D366':'2px solid transparent', marginBottom:-1 }}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* List */}
+      <div style={{ flex:1, overflowY:'auto', WebkitOverflowScrolling:'touch' }}>
+        {tab === 'direct' && (
+          loadingConvs ? <div style={{ display:'flex', justifyContent:'center', padding:40 }}><div className="spinner spinner-dark" /></div>
+          : convs.length===0 ? <div style={{ padding:'40px 20px', textAlign:'center', color:'#8696A0' }}><div style={{ fontSize:40, marginBottom:8 }}>💬</div><div>No conversations yet</div></div>
+          : convs.map(conv => {
+            const pid = conv.parent?._id||conv._id;
+            const online = isOnline(pid);
+            const isTyp = typingParents[pid];
+            return (
+              <div key={pid} onClick={()=>openChat(conv.parent)} style={{ padding:'12px 16px', cursor:'pointer', borderBottom:'1px solid rgba(255,255,255,0.04)', background:active?._id===pid?'rgba(255,255,255,0.04)':'transparent', display:'flex', alignItems:'center', gap:12, transition:'background 0.1s' }}>
+                <Avatar name={conv.parent?.name} src={conv.parent?.profilePic} size={46} online={online} />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
+                    <span style={{ fontWeight:600, fontSize:15, color:'#E9EDEF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{conv.parent?.name||'Unknown'}</span>
+                    <span style={{ fontSize:11, color:'#8696A0', flexShrink:0, marginLeft:8 }}>{new Date(conv.lastTime).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span>
                   </div>
-                  {newGroup.members.includes(p._id)&&<span style={{color:'#4ADE80',fontSize:18}}>✓</span>}
+                  <div style={{ fontSize:12, color: isTyp?'#25D366':'#8696A0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    {isTyp ? '✍ typing...' : (conv.lastMessage?.substring(0,35)||(online?'Online':'Offline'))}
+                    {conv.unreadCount>0 && <span style={{ float:'right', background:'#25D366', color:'#111', borderRadius:999, fontSize:11, fontWeight:700, padding:'1px 7px', marginLeft:8, flexShrink:0 }}>{conv.unreadCount}</span>}
+                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
-          <button className="btn btn-primary w-full btn-lg" onClick={createGroup}>🏘️ Create Group</button>
-        </div>
-      )}
-
-      {/* Conversation list */}
-      {view==='list' && (
-        <div style={{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch'}}>
-          <div style={{padding:'12px 14px',background:'#13131E',borderBottom:'1px solid rgba(255,255,255,0.06)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <div>
-              <h3 style={{fontFamily:'var(--font-display)',fontSize:20,color:'#E8E8F4'}}>💬 Messages</h3>
-              <p style={{fontSize:11.5,color:'rgba(255,255,255,0.35)',marginTop:1}}>{onlineUsers.size} online now</p>
-            </div>
-            <button onClick={()=>setView('newGroup')} style={{padding:'7px 14px',borderRadius:20,background:'linear-gradient(135deg,#6B0F1A,#A52030)',border:'none',color:'#fff',fontSize:12.5,fontWeight:700,cursor:'pointer',boxShadow:'0 0 10px rgba(155,24,38,0.3)'}}>
-              + New Group
-            </button>
-          </div>
-
-          {/* Groups */}
-          {groups.length>0&&<div style={{padding:'8px 14px 4px',fontSize:10.5,color:'rgba(255,255,255,0.3)',textTransform:'uppercase',letterSpacing:'0.1em'}}>Groups</div>}
-          {groups.map(g=>(
-            <div key={g._id} onClick={()=>openGroup(g)} style={{padding:'12px 14px',borderBottom:'1px solid rgba(255,255,255,0.04)',display:'flex',alignItems:'center',gap:12,cursor:'pointer',transition:'background 0.1s'}}
-              onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'}
-              onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-              <div style={{width:46,height:46,borderRadius:'50%',background:'linear-gradient(135deg,#1A1A28,#2A2A40)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0,border:'1px solid rgba(255,255,255,0.08)'}}>{g.icon||'🏫'}</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontWeight:600,fontSize:14.5,color:'#E8E8F4'}}>{g.name}</div>
-                <div style={{fontSize:12,color:'rgba(255,255,255,0.35)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',marginTop:1}}>
-                  {g.members?.length} members{g.lastMessage?` · ${g.lastMessage.substring(0,30)}`:''}
+              </div>
+            );
+          })
+        )}
+        {tab === 'groups' && (
+          groups.length===0 ? <div style={{ padding:'40px 20px', textAlign:'center', color:'#8696A0' }}><div style={{ fontSize:40, marginBottom:8 }}>👥</div><div>No groups yet</div><button onClick={()=>setShowCreateGroup(true)} style={{ marginTop:16, padding:'10px 24px', background:'linear-gradient(135deg,#00A884,#128C7E)', border:'none', borderRadius:12, color:'#fff', cursor:'pointer', fontWeight:600 }}>Create Group</button></div>
+          : groups.map(group => (
+            <div key={group._id} onClick={()=>openGroup(group)} style={{ padding:'12px 16px', cursor:'pointer', borderBottom:'1px solid rgba(255,255,255,0.04)', background:activeGroup?._id===group._id?'rgba(255,255,255,0.04)':'transparent', display:'flex', alignItems:'center', gap:12 }}>
+              <div style={{ width:46, height:46, borderRadius:'50%', background:'linear-gradient(135deg,#9B1826,#6B0F1A)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>{group.icon||'👥'}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
+                  <span style={{ fontWeight:600, fontSize:15, color:'#E9EDEF' }}>{group.name}</span>
+                  {group.lastMessageTime && <span style={{ fontSize:11, color:'#8696A0' }}>{new Date(group.lastMessageTime).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span>}
+                </div>
+                <div style={{ fontSize:12, color:'#8696A0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  {group.lastMessage||`${group.members?.length||0} members`}
                 </div>
               </div>
             </div>
-          ))}
-
-          {/* Direct messages */}
-          {convs.length>0&&<div style={{padding:'8px 14px 4px',fontSize:10.5,color:'rgba(255,255,255,0.3)',textTransform:'uppercase',letterSpacing:'0.1em'}}>Direct Messages</div>}
-          {loading ? <div style={{display:'flex',justifyContent:'center',padding:24}}><div className="spinner spinner-dark"/></div>
-          : convs.length===0&&groups.length===0 ? (
-            <div style={{padding:'40px 20px',textAlign:'center',color:'rgba(255,255,255,0.25)'}}>
-              <div style={{fontSize:48,marginBottom:12}}>💬</div>
-              <div style={{fontSize:15,fontWeight:600}}>No messages yet</div>
-              <div style={{fontSize:12,marginTop:4}}>Parents will appear here when they message</div>
-            </div>
-          ) : convs.map(conv=>(
-            <div key={conv._id} onClick={()=>openChat(conv.parent)} style={{padding:'12px 14px',borderBottom:'1px solid rgba(255,255,255,0.04)',display:'flex',alignItems:'center',gap:12,cursor:'pointer',transition:'background 0.1s'}}
-              onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'}
-              onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-              <div style={{position:'relative',flexShrink:0}}>
-                <div style={{width:46,height:46,borderRadius:'50%',background:'linear-gradient(135deg,#6B0F1A,#A52030)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,fontWeight:700,color:'#fff'}}>{conv.parent?.name?.[0]?.toUpperCase()||'?'}</div>
-                <span style={{position:'absolute',bottom:1,right:1,width:12,height:12,borderRadius:'50%',background:isOnline(conv.parent?._id)?'#4ADE80':'rgba(255,255,255,0.2)',border:'2px solid #0D0D14'}}/>
-              </div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <span style={{fontWeight:600,fontSize:14.5,color:'#E8E8F4',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{conv.parent?.name||'Unknown'}</span>
-                  {conv.unreadCount>0&&<span style={{background:'#25D366',color:'#000',borderRadius:999,fontSize:11,fontWeight:700,padding:'2px 7px',flexShrink:0,marginLeft:6}}>{conv.unreadCount}</span>}
-                </div>
-                <div style={{fontSize:12,color:isOnline(conv.parent?._id)?'#4ADE80':'rgba(255,255,255,0.3)',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                  {isOnline(conv.parent?._id)?'● Online':'○ Offline'}
-                  {conv.lastMessage&&<span style={{color:'rgba(255,255,255,0.3)',marginLeft:6}}>{conv.lastMessage.substring(0,28)}{conv.lastMessage.length>28?'...':''}</span>}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Chat view */}
-      {(view==='chat'||view==='group') && (
-        <>
-          {/* Header */}
-          <div style={{padding:'10px 14px',background:'#13131E',borderBottom:'1px solid rgba(255,255,255,0.06)',display:'flex',alignItems:'center',gap:11,flexShrink:0,boxShadow:'0 2px 10px rgba(0,0,0,0.4)'}}>
-            <button onClick={()=>setView('list')} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',fontSize:24,cursor:'pointer',padding:'2px 4px',marginLeft:-4,flexShrink:0}}>‹</button>
-            <div style={{position:'relative',flexShrink:0}}>
-              <div style={{width:38,height:38,borderRadius:'50%',background:'linear-gradient(135deg,#6B0F1A,#A52030)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:view==='group'?20:15,fontWeight:700,color:'#fff'}}>
-                {view==='group'?activeGroup?.icon||'🏫':activeTitle?.[0]?.toUpperCase()}
-              </div>
-              {view==='chat'&&<span style={{position:'absolute',bottom:0,right:0,width:11,height:11,borderRadius:'50%',background:isActiveOnline?'#4ADE80':'rgba(255,255,255,0.2)',border:'2px solid #13131E'}}/>}
-            </div>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontWeight:700,fontSize:15,color:'#E8E8F4',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{activeTitle}</div>
-              <div style={{fontSize:11.5,marginTop:1,color:view==='group'?'rgba(255,255,255,0.4)':isActiveOnline?'#4ADE80':'rgba(255,255,255,0.3)'}}>
-                {view==='group'?`${activeGroup?.members?.length} members`:isActiveOnline?'● Online now':'○ Offline'}
-              </div>
-            </div>
-          </div>
-
-          {/* Messages */}
-          <div ref={msgsBox} style={{flex:1,overflowY:'auto',padding:'10px 10px',backgroundImage:'radial-gradient(circle at 20% 50%, rgba(155,24,38,0.03) 0%, transparent 50%)',WebkitOverflowScrolling:'touch',display:'flex',flexDirection:'column',gap:2}}>
-            {msgList.map((msg,idx) => {
-              const prev = msgList[idx-1];
-              const showDate = !prev || new Date(msg.createdAt).toDateString()!==new Date(prev.createdAt).toDateString();
-              return (
-                <div key={msg._id}>
-                  {showDate&&<div style={{textAlign:'center',margin:'8px 0'}}><span style={{background:'rgba(255,255,255,0.06)',padding:'3px 12px',borderRadius:999,fontSize:11,color:'rgba(255,255,255,0.35)'}}>{new Date(msg.createdAt).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})}</span></div>}
-                  <MsgBubble msg={msg} />
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Upload progress */}
-          {uploading&&<div style={{margin:'4px 12px',padding:'8px 14px',background:'rgba(59,130,246,0.1)',border:'1px solid rgba(59,130,246,0.25)',borderRadius:10,display:'flex',alignItems:'center',gap:10,flexShrink:0}}><div className="spinner spinner-dark" style={{width:14,height:14}}/><span style={{fontSize:13,color:'#60A5FA',flex:1}}>Sending...</span></div>}
-          {recording&&<div style={{margin:'4px 12px',padding:'8px 14px',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:10,display:'flex',alignItems:'center',gap:10,flexShrink:0}}><div style={{width:8,height:8,borderRadius:'50%',background:'#EF4444',animation:'pulse 1s infinite'}}/><span style={{fontSize:13,color:'#FC8181',fontWeight:600,flex:1}}>🎤 Recording... {fmt(recordSec)}</span><button onClick={stopRec} style={{padding:'5px 12px',borderRadius:8,background:'#EF4444',border:'none',color:'#fff',fontSize:12,cursor:'pointer'}}>Send</button></div>}
-
-          {/* Input */}
-          <div style={{padding:'8px 10px 14px',background:'#13131E',borderTop:'1px solid rgba(255,255,255,0.05)',flexShrink:0}}>
-            <input ref={fileRef} type="file" accept="image/*,video/*" onChange={handleFile} style={{display:'none'}}/>
-            <div style={{display:'flex',alignItems:'flex-end',gap:8}}>
-              <button onClick={()=>fileRef.current?.click()} style={{width:44,height:44,borderRadius:'50%',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.5)',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>📎</button>
-              <div style={{flex:1,background:'rgba(255,255,255,0.06)',borderRadius:22,border:'1px solid rgba(255,255,255,0.08)',display:'flex',alignItems:'flex-end',overflow:'hidden'}}>
-                <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={handleKey} placeholder={view==='group'?`Message ${activeGroup?.name}...`:`Reply to ${active?.name?.split(' ')[0]}...`} rows={1} style={{flex:1,padding:'11px 14px',background:'none',border:'none',outline:'none',resize:'none',color:'#E8E8F4',fontFamily:'var(--font-body)',fontSize:'16px',maxHeight:100,lineHeight:1.5}}/>
-              </div>
-              {input.trim()?(
-                <button onClick={sendText} style={{width:44,height:44,borderRadius:'50%',background:'linear-gradient(135deg,#6B0F1A,#A52030)',border:'none',color:'#fff',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 0 12px rgba(155,24,38,0.4)'}}>➤</button>
-              ):(
-                <button onMouseDown={startRec} onMouseUp={stopRec} onTouchStart={e=>{e.preventDefault();startRec();}} onTouchEnd={e=>{e.preventDefault();stopRec();}} style={{width:44,height:44,borderRadius:'50%',background:recording?'#EF4444':'linear-gradient(135deg,#6B0F1A,#A52030)',border:'none',color:'#fff',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:recording?'0 0 16px rgba(239,68,68,0.5)':'0 0 12px rgba(155,24,38,0.4)',transition:'all 0.2s'}}>🎤</button>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Message action sheet */}
-      {selectedMsg&&(
-        <div style={{position:'fixed',inset:0,zIndex:300,background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'flex-end'}} onClick={()=>setSelectedMsg(null)}>
-          <div style={{width:'100%',background:'#1A1A28',borderRadius:'20px 20px 0 0',padding:'8px 0 18px',border:'1px solid rgba(255,255,255,0.08)'}} onClick={e=>e.stopPropagation()}>
-            <div style={{display:'flex',justifyContent:'center',gap:16,padding:'14px 20px',borderBottom:'1px solid rgba(255,255,255,0.06)'}}>
-              {EMOJIS.map(e=><button key={e} style={{fontSize:28,background:'none',border:'none',cursor:'pointer'}}>{e}</button>)}
-            </div>
-            {[
-              {icon:'🗑️',label:'Delete for me',action:()=>deleteMsg(selectedMsg,false),color:'#EF4444'},
-              (selectedMsg.sender?._id===user._id||selectedMsg.sender===user._id)&&{icon:'🗑️',label:'Delete for everyone',action:()=>deleteMsg(selectedMsg,true),color:'#EF4444'},
-              selectedMsg.mediaData&&{icon:'🔗',label:'Copy media link',action:()=>{navigator.clipboard?.writeText(selectedMsg.mediaData||'');toast.success('Link copied!');setSelectedMsg(null);},color:'#60A5FA'},
-              {icon:'✕',label:'Cancel',action:()=>setSelectedMsg(null),color:'rgba(255,255,255,0.35)'},
-            ].filter(Boolean).map((a,i)=><button key={i} onClick={a.action} style={{width:'100%',padding:'14px 22px',background:'none',border:'none',color:a.color,fontSize:15,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:12}}><span style={{fontSize:18}}>{a.icon}</span>{a.label}</button>)}
-          </div>
-        </div>
-      )}
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+          ))
+        )}
+      </div>
     </div>
   );
+
+  return (
+    <>
+      {showCreateGroup && <CreateGroupModal onClose={()=>setShowCreateGroup(false)} onCreated={g=>{setGroups(p=>[g,...p]);}} />}
+      <div style={{ position:'fixed', top:'var(--header-height)', left:0, right:0, bottom:0, display:'flex', background:'#111B21' }}>
+        {/* Desktop: sidebar + chat */}
+        <div style={{ width:340, borderRight:'1px solid rgba(255,255,255,0.07)', flexShrink:0, display:'flex', flexDirection:'column', background:'#111B21' }}>
+          <ListPanel />
+        </div>
+        <div style={{ flex:1, display:'flex', flexDirection:'column', background:'#0B141A' }}>
+          {view==='list' ? (
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', color:'#8696A0', textAlign:'center' }}>
+              <div style={{ fontSize:72, marginBottom:20 }}>💬</div>
+              <div style={{ fontSize:20, fontWeight:600, color:'#E9EDEF', marginBottom:8 }}>Peace Mindset Admin Chat</div>
+              <div style={{ fontSize:14 }}>Select a conversation or group to start chatting</div>
+            </div>
+          ) : (
+            <ChatPanel />
+          )}
+        </div>
+      </div>
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+    </>
+  );
 }
+
+const sendBtn = { width:46, height:46, borderRadius:'50%', flexShrink:0, background:'linear-gradient(135deg,#00A884,#128C7E)', border:'none', color:'#fff', fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' };

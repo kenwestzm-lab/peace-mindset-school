@@ -12,59 +12,36 @@ const cron = require("node-cron");
 const app = express();
 const server = http.createServer(app);
 
-// ─── Socket.io Setup ────────────────────────────────────────────────────────
+// ─── Socket.io (60 MB buffer for large media) ────────────────────────────────
 const io = new Server(server, {
   cors: {
     origin: process.env.FRONTEND_URL || "http://localhost:5173",
     methods: ["GET", "POST"],
     credentials: true,
   },
+  maxHttpBufferSize: 60 * 1024 * 1024,
 });
-
-// Make io accessible to routes
 app.set("io", io);
 
-// ─── Middleware ──────────────────────────────────────────────────────────────
+// ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(morgan("dev"));
-app.use(
-  cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
-    credentials: true,
-  })
-);
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(cors({ origin: process.env.FRONTEND_URL || "http://localhost:5173", credentials: true }));
+app.use(express.json({ limit: "60mb" }));
+app.use(express.urlencoded({ extended: true, limit: "60mb" }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200,
-  message: { error: "Too many requests, please try again later." },
-});
+const limiter = rateLimit({ windowMs: 15*60*1000, max: 300 });
+const authLimiter = rateLimit({ windowMs: 15*60*1000, max: 20 });
 app.use("/api/", limiter);
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  message: { error: "Too many login attempts, please try again later." },
-});
 app.use("/api/auth/", authLimiter);
 
-// ─── Database Connection ─────────────────────────────────────────────────────
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => {
-    console.log("✅ MongoDB connected");
-    // Seed admin & developer accounts on startup
-    require("./utils/seed")();
-  })
-  .catch((err) => {
-    console.error("❌ MongoDB connection error:", err.message);
-    process.exit(1);
-  });
+// ─── Database ─────────────────────────────────────────────────────────────────
+mongoose.connect(process.env.MONGO_URI).then(() => {
+  console.log("✅ MongoDB connected");
+  require("./utils/seed")();
+}).catch(err => { console.error("❌ MongoDB error:", err.message); process.exit(1); });
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
+// ─── Routes ───────────────────────────────────────────────────────────────────
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/children", require("./routes/children"));
 app.use("/api/payments", require("./routes/payments"));
@@ -79,50 +56,29 @@ app.use("/api/calendar", require("./routes/calendar"));
 app.use("/api/stories", require("./routes/stories"));
 app.use("/api/groups", require("./routes/groups"));
 app.use("/api/push", require("./routes/push"));
+app.use("/api/profile", require("./routes/profile"));
 
-// Health check
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
+app.get("/api/health", (req, res) => res.json({ status: "ok", ts: new Date().toISOString() }));
+app.use((req, res) => res.status(404).json({ error: "Not found" }));
+app.use((err, req, res, next) => res.status(err.status||500).json({ error: err.message||"Server error" }));
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: "Route not found" });
-});
-
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(err.status || 500).json({
-    error: err.message || "Internal server error",
-  });
-});
-
-// ─── Socket.io Real-Time Logic ───────────────────────────────────────────────
-const connectedUsers = new Map(); // userId -> socketId
+// ─── Socket Real-Time ─────────────────────────────────────────────────────────
+const connectedUsers = new Map();
 
 io.on("connection", (socket) => {
-  console.log("🔌 Socket connected:", socket.id);
 
   socket.on("join", (userId) => {
     connectedUsers.set(userId, socket.id);
     socket.join(`user:${userId}`);
-    console.log(`User ${userId} joined room user:${userId}`);
-    // Broadcast online status to admin
     io.to("admin_room").emit("user_online", { userId, online: true });
   });
 
   socket.on("join_admin", () => {
     socket.join("admin_room");
-    // Send current online users to admin
-    const onlineUsers = Array.from(connectedUsers.keys());
-    socket.emit("online_users", { userIds: onlineUsers });
+    socket.emit("online_users", { userIds: Array.from(connectedUsers.keys()) });
   });
 
-  socket.on("join_developer", () => {
-    socket.join("developer_room");
-    console.log("Developer joined developer_room");
-  });
+  socket.on("join_group", (groupId) => socket.join(`group:${groupId}`));
 
   socket.on("send_message", async (data) => {
     try {
@@ -137,13 +93,47 @@ io.on("connection", (socket) => {
         mediaMimeType: data.mediaMimeType || null,
         duration: data.duration || null,
       });
-
-      const populated = await msg.populate("sender", "name email");
+      const populated = await msg.populate("sender", "name email profilePic");
       io.to("admin_room").emit("new_message", populated);
       io.to(`user:${data.parentId}`).emit("new_message", populated);
-    } catch (err) {
-      console.error("Socket message error:", err);
-    }
+      // push notification
+      try {
+        const { sendPushToUser } = require("./routes/push");
+        if (data.senderRole === "admin") {
+          await sendPushToUser(data.parentId, {
+            title: "Peace Mindset School",
+            body: data.messageType !== "text" ? "📎 Media received" : data.content.substring(0, 60),
+            icon: "/logo.webp", url: "/parent/chat",
+          });
+        }
+      } catch {}
+    } catch(err) { console.error("Msg socket error:", err); }
+  });
+
+  socket.on("send_group_message", async (data) => {
+    try {
+      const { GroupMessage, Group } = require("./models/index");
+      const msg = await GroupMessage.create({
+        group: data.groupId, sender: data.senderId,
+        content: data.content, messageType: data.messageType || "text",
+        mediaData: data.mediaData || null, mediaMimeType: data.mediaMimeType || null, duration: data.duration || null,
+      });
+      await Group.findByIdAndUpdate(data.groupId, {
+        lastMessage: data.messageType !== "text" ? `📎 ${data.messageType}` : data.content.substring(0, 60),
+        lastMessageTime: new Date(),
+      });
+      const populated = await msg.populate("sender", "name role profilePic");
+      io.to(`group:${data.groupId}`).emit("new_group_message", populated);
+    } catch(err) { console.error("Group msg socket error:", err); }
+  });
+
+  socket.on("typing", ({ parentId, isTyping, senderRole }) => {
+    if (senderRole === "admin") io.to(`user:${parentId}`).emit("admin_typing", { isTyping });
+    else io.to("admin_room").emit("user_typing", { parentId, isTyping });
+  });
+
+  socket.on("group_typing", ({ groupId, userId, userName, isTyping }) => {
+    socket.to(`group:${groupId}`).emit("group_typing", { userId, userName, isTyping });
   });
 
   socket.on("disconnect", () => {
@@ -153,42 +143,32 @@ io.on("connection", (socket) => {
         io.to("admin_room").emit("user_online", { userId: uid, online: false });
       }
     });
-    console.log("🔌 Socket disconnected:", socket.id);
   });
 });
 
-// ─── Cron Jobs ────────────────────────────────────────────────────────────────
-// Run daily at midnight: check expired payments and lock access
+// ─── Cron: expire stories every minute ───────────────────────────────────────
+cron.schedule("* * * * *", async () => {
+  try {
+    const { Story } = require("./models/index");
+    const r = await Story.updateMany({ isActive: true, expiresAt: { $lt: new Date() } }, { isActive: false });
+    if (r.modifiedCount > 0) io.emit("stories_expired");
+  } catch {}
+});
+
 cron.schedule("0 0 * * *", async () => {
   try {
     const Payment = require("./models/Payment");
-    const now = new Date();
-    const expiredPayments = await Payment.find({
-      status: "approved",
-      expiresAt: { $lt: now },
-      isExpired: false,
-    });
-
-    for (const p of expiredPayments) {
-      p.isExpired = true;
-      await p.save();
-      // Notify parent
-      io.to(`user:${p.parent.toString()}`).emit("payment_expired", {
-        childId: p.child,
-        message: "Your payment has expired. Please renew to maintain access.",
-      });
+    const expired = await Payment.find({ status: "approved", expiresAt: { $lt: new Date() }, isExpired: false });
+    for (const p of expired) {
+      p.isExpired = true; await p.save();
+      io.to(`user:${p.parent}`).emit("payment_expired", { childId: p.child, message: "Payment expired. Please renew." });
     }
-    console.log(`✅ Cron: processed ${expiredPayments.length} expired payments`);
-  } catch (err) {
-    console.error("Cron error:", err);
-  }
+  } catch(err) { console.error("Cron error:", err); }
 });
 
-// ─── Start Server ─────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📡 Environment: ${process.env.NODE_ENV}`);
 });
-
 module.exports = { io, connectedUsers };

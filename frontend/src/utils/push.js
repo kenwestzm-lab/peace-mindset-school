@@ -1,28 +1,48 @@
 import api from './api';
 
-// Register service worker and subscribe to push notifications
-export const setupPushNotifications = async () => {
+// ─── Register Service Worker ──────────────────────────────────────────────────
+export const registerServiceWorker = async () => {
+  if (!('serviceWorker' in navigator)) {
+    console.warn('Service workers not supported');
+    return null;
+  }
   try {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      console.log('Push notifications not supported');
-      return false;
-    }
+    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    console.log('✅ Service Worker registered:', reg.scope);
+    return reg;
+  } catch (err) {
+    console.error('SW registration failed:', err);
+    return null;
+  }
+};
 
-    // Register service worker
-    const reg = await navigator.serviceWorker.register('/sw.js');
-    console.log('✅ Service Worker registered');
+// ─── Convert VAPID public key ─────────────────────────────────────────────────
+const urlBase64ToUint8Array = (base64String) => {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+};
 
-    // Get VAPID public key
-    const { data } = await api.get('/push/vapid-public-key');
-    if (!data.publicKey) {
-      console.log('VAPID key not configured on server');
-      return false;
-    }
-
+// ─── Request Push Permission & Subscribe ─────────────────────────────────────
+export const subscribeToPush = async () => {
+  try {
     // Request notification permission
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
-      console.log('Push permission denied');
+      console.warn('Notification permission denied');
+      return false;
+    }
+
+    // Get service worker registration
+    const reg = await navigator.serviceWorker.ready;
+
+    // Get VAPID public key from server
+    const { data } = await api.get('/push/vapidPublicKey');
+    if (!data.publicKey) {
+      console.warn('No VAPID key from server');
       return false;
     }
 
@@ -32,24 +52,58 @@ export const setupPushNotifications = async () => {
       applicationServerKey: urlBase64ToUint8Array(data.publicKey),
     });
 
-    // Save subscription to server
+    // Send subscription to backend
     await api.post('/push/subscribe', {
-      subscription: subscription.toJSON(),
-      deviceName: navigator.userAgent.includes('Android') ? 'Android' : 'Browser',
+      subscription,
+      deviceName: navigator.userAgent.substring(0, 100),
     });
 
-    console.log('✅ Push notifications enabled');
+    console.log('✅ Push notifications subscribed');
     return true;
   } catch (err) {
-    console.error('Push setup error:', err);
+    console.error('Push subscription failed:', err);
     return false;
   }
 };
 
-// Helper to convert VAPID key
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
-}
+// ─── Unsubscribe ──────────────────────────────────────────────────────────────
+export const unsubscribeFromPush = async () => {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await api.delete('/push/unsubscribe', { data: { endpoint: sub.endpoint } });
+      await sub.unsubscribe();
+    }
+    return true;
+  } catch (err) {
+    console.error('Unsubscribe failed:', err);
+    return false;
+  }
+};
+
+// ─── Check if already subscribed ─────────────────────────────────────────────
+export const isPushSubscribed = async () => {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    return !!sub;
+  } catch { return false; }
+};
+
+// ─── Auto-setup on app load ───────────────────────────────────────────────────
+export const initPushNotifications = async () => {
+  // Register SW first
+  await registerServiceWorker();
+  
+  // Check if already subscribed
+  const alreadySubscribed = await isPushSubscribed();
+  if (alreadySubscribed) {
+    console.log('✅ Already subscribed to push notifications');
+    return;
+  }
+
+  // Don't auto-prompt; let user choose in settings
+  // The app will call subscribeToPush() when user enables notifications
+};
