@@ -76,7 +76,8 @@ export default function AdminChat() {
     } catch { toast.error("Broadcast failed"); }
   };
 
-  const sendText = () => {
+
+    const sendText = () => {
     if (!input.trim() || !activeParent) return;
     sendMessage({ content: input.trim(), messageType:'text' });
     setInput('');
