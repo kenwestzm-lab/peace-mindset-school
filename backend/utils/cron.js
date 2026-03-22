@@ -1,7 +1,7 @@
 // ── Auto-expiry cron jobs for Zambian school terms ────────────────────
 // Add this to your server.js, replacing the existing cron section
 
-const { getCurrentTerm, getTerm, ZAMBIAN_TERMS } = require("./utils/zambia-calendar");
+const { getCurrentTerm, getTerm, ZAMBIAN_TERMS } = require("./zambia-calendar");
 
 module.exports = (io) => {
 
