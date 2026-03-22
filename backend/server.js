@@ -57,6 +57,7 @@ app.use("/api/stories", require("./routes/stories"));
 app.use("/api/groups", require("./routes/groups"));
 app.use("/api/push", require("./routes/push"));
 app.use("/api/upload", require("./routes/upload"));
+app.use("/api/media", require("./routes/media"));
 app.use("/api/profile", require("./routes/profile"));
 
 app.get("/api/health", (req, res) => res.json({ status: "ok", ts: new Date().toISOString() }));
@@ -84,13 +85,24 @@ io.on("connection", (socket) => {
   socket.on("send_message", async (data) => {
     try {
       const { Message } = require("./models/index");
+      const { smartUpload } = require("./utils/cloudinary");
+      let finalMediaData = data.mediaData || null;
+      let mediaPublicId = null;
+      if (finalMediaData && finalMediaData.startsWith("data:") && data.messageType !== "text" && data.messageType !== "voice") {
+        try {
+          const folder = data.messageType === "video" ? "peace-mindset/videos" : "peace-mindset/images";
+          const r = await smartUpload(finalMediaData, { mimeType: data.mediaMimeType, folder });
+          finalMediaData = r.url; mediaPublicId = r.publicId;
+        } catch(e) { console.error("Socket upload:", e.message); }
+      }
       const msg = await Message.create({
         sender: data.senderId,
         senderRole: data.senderRole,
         parentId: data.parentId,
         content: data.content,
         messageType: data.messageType || "text",
-        mediaData: data.mediaData || null,
+        mediaData: finalMediaData,
+        mediaPublicId,
         mediaMimeType: data.mediaMimeType || null,
         duration: data.duration || null,
       });
