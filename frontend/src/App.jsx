@@ -77,7 +77,7 @@ export default function App() {
         <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AppLayout /></ProtectedRoute>}>
           <Route index element={<AdminDashboard />} />
           <Route path="children" element={<AdminChildren />} />
-          <Route path="results" element={<AdminResults /> />
+          <Route path="results" element={<AdminResults />} />
           <Route path="payments" element={<AdminPayments />} />
           <Route path="announcements" element={<AdminAnnouncements />} />
           <Route path="events" element={<AdminEvents />} />
