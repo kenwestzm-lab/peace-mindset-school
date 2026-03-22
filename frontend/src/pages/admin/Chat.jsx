@@ -14,13 +14,16 @@ export default function AdminChat() {
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  const bottomRef = useRef(null);
+  const [showConvs, setShowConvs] = useState(true); // mobile: show list or chat
+  const messagesRef = useRef(null);
   const mediaRecorder = useRef(null);
   const audioChunks = useRef([]);
   const recordTimer = useRef(null);
   const fileInputRef = useRef(null);
 
-  const scrollToBottom = () => bottomRef.current?.scrollIntoView({ behavior:'smooth' });
+  const scrollToBottom = () => {
+    if (messagesRef.current) messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+  };
 
   const loadConversations = async () => {
     try {
@@ -36,6 +39,7 @@ export default function AdminChat() {
       socket.on('new_message', (msg) => {
         setMessages(prev => prev.find(m=>m._id===msg._id) ? prev : [...prev, msg]);
         loadConversations();
+        setTimeout(scrollToBottom, 100);
       });
     }
     return () => getSocket()?.off('new_message');
@@ -45,6 +49,7 @@ export default function AdminChat() {
 
   const openConversation = async (parent) => {
     setActiveParent(parent);
+    setShowConvs(false); // mobile: switch to chat view
     setLoadingMsgs(true);
     try {
       const r = await api.get(`/chat/${parent._id}`);
@@ -53,33 +58,22 @@ export default function AdminChat() {
   };
 
   const sendMessage = async (payload) => {
+    if (!activeParent) return;
     const socket = getSocket();
     try {
       if (socket?.connected) {
-        socket.emit('send_message', {
-          senderId: user._id, senderRole:'admin',
-          parentId: activeParent._id, ...payload,
-        });
+        socket.emit('send_message', { senderId:user._id, senderRole:'admin', parentId:activeParent._id, ...payload });
       } else {
-        const r = await api.post('/chat', { parentId: activeParent._id, ...payload });
+        const r = await api.post('/chat', { parentId:activeParent._id, ...payload });
         setMessages(prev => [...prev, r.data.message]);
       }
+      setTimeout(scrollToBottom, 100);
     } catch { toast.error('Failed to send'); }
   };
 
-  const sendBroadcast = async () => {
-    if (!input.trim()) return;
-    try {
-      const r = await api.post("/chat/broadcast", { content: input.trim(), messageType: "text" });
-      toast.success(`Sent to ${r.data.count} parents!`);
-      setInput("");
-    } catch { toast.error("Broadcast failed"); }
-  };
-
-
-    const sendText = () => {
+  const sendText = () => {
     if (!input.trim() || !activeParent) return;
-    sendMessage({ content: input.trim(), messageType:'text' });
+    sendMessage({ content:input.trim(), messageType:'text' });
     setInput('');
   };
 
@@ -120,29 +114,123 @@ export default function AdminChat() {
     if (!file || !activeParent) return;
     const isImage = file.type.startsWith('image/');
     const isVideo = file.type.startsWith('video/');
-    const maxSize = isVideo ? 15*1024*1024 : 5*1024*1024;
-    if (file.size > maxSize) { toast.error(`Too large. Max ${isVideo?'15MB':'5MB'}`); return; }
+    if (file.size > (isVideo?15:5)*1024*1024) { toast.error('File too large'); return; }
     const reader = new FileReader();
-    reader.onload = () => sendMessage({ content: isImage?'📷 Photo':'🎥 Video', messageType:isImage?'image':'video', mediaData:reader.result, mediaMimeType:file.type });
+    reader.onload = () => sendMessage({ content:isImage?'📷 Photo':'🎥 Video', messageType:isImage?'image':'video', mediaData:reader.result, mediaMimeType:file.type });
     reader.readAsDataURL(file);
-    e.target.value = '';
+    e.target.value='';
   };
 
   const fmt = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
 
   const msgTypeIcon = (type) => type==='voice'?'🎤':type==='image'?'📷':type==='video'?'🎥':'';
 
+  const ChatArea = () => (
+    <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, height:'100%' }}>
+      {/* Chat header */}
+      <div style={{ padding:'13px 16px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
+        {/* Back button - mobile only */}
+        <button onClick={()=>setShowConvs(true)} className="show-mobile-btn" style={{
+          background:'none', border:'none', color:'var(--text-muted)', fontSize:20,
+          cursor:'pointer', padding:'2px 6px', marginLeft:-4, display:'none',
+        }}>←</button>
+        <div style={{ width:36, height:36, borderRadius:'50%', background:'linear-gradient(135deg,var(--maroon),var(--maroon-light))', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:700, color:'#fff', flexShrink:0 }}>
+          {activeParent?.name?.[0]?.toUpperCase()}
+        </div>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontWeight:600, fontSize:14.5, color:'var(--text)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{activeParent?.name}</div>
+          <div style={{ fontSize:11.5, color:'var(--text-muted)' }}>{activeParent?.email}</div>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div ref={messagesRef} style={{ flex:1, overflowY:'auto', padding:'14px 10px', display:'flex', flexDirection:'column', WebkitOverflowScrolling:'touch' }}>
+        {loadingMsgs ? (
+          <div style={{ display:'flex', justifyContent:'center', alignItems:'center', flex:1 }}><div className="spinner spinner-dark" /></div>
+        ) : messages.length===0 ? (
+          <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', textAlign:'center' }}>
+            <div style={{ fontSize:40, marginBottom:8 }}>💬</div>
+            <div style={{ fontSize:14 }}>No messages yet</div>
+          </div>
+        ) : messages.map(msg => {
+          const isMe = msg.sender?._id===user._id || msg.sender===user._id;
+          const time = new Date(msg.createdAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+          return (
+            <div key={msg._id} style={{ display:'flex', justifyContent:isMe?'flex-end':'flex-start', gap:8, marginBottom:10 }}>
+              {!isMe && (
+                <div style={{ width:28, height:28, borderRadius:'50%', background:'linear-gradient(135deg,var(--maroon),var(--maroon-light))', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#fff', fontWeight:700, flexShrink:0, alignSelf:'flex-end' }}>
+                  {msg.sender?.name?.[0]?.toUpperCase()||'P'}
+                </div>
+              )}
+              <div style={{ maxWidth:'75%' }}>
+                <div style={{
+                  padding:msg.messageType==='text'?'9px 13px':'7px 9px',
+                  borderRadius:14,
+                  borderBottomRightRadius:isMe?3:14, borderBottomLeftRadius:isMe?14:3,
+                  background:isMe?'linear-gradient(135deg,var(--maroon),var(--maroon-light))':'rgba(255,255,255,0.06)',
+                  border:isMe?'none':'1px solid rgba(255,255,255,0.08)',
+                  boxShadow:isMe?'0 2px 10px rgba(155,24,38,0.25)':'none',
+                }}>
+                  {msg.messageType==='text' && <p style={{ fontSize:13.5, color:isMe?'#fff':'var(--text)', lineHeight:1.5, margin:0, wordBreak:'break-word' }}>{msg.content}</p>}
+                  {msg.messageType==='voice' && msg.mediaData && (
+                    <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:150 }}>
+                      <span>🎤</span>
+                      <audio controls src={msg.mediaData} style={{ height:28, flex:1, maxWidth:160 }} />
+                    </div>
+                  )}
+                  {msg.messageType==='image' && msg.mediaData && (
+                    <img src={msg.mediaData} alt="Photo" style={{ maxWidth:180, maxHeight:180, borderRadius:8, display:'block', cursor:'pointer' }}
+                      onClick={()=>window.open(msg.mediaData,'_blank')} />
+                  )}
+                  {msg.messageType==='video' && msg.mediaData && (
+                    <video controls src={msg.mediaData} style={{ maxWidth:180, maxHeight:140, borderRadius:8, display:'block' }} />
+                  )}
+                </div>
+                <div style={{ fontSize:10.5, color:'var(--text-muted)', marginTop:2, textAlign:isMe?'right':'left' }}>{time}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Input */}
+      <div style={{ padding:'10px 12px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
+        {recording && (
+          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 12px', marginBottom:8, background:'rgba(239,68,68,0.1)', borderRadius:9, border:'1px solid rgba(239,68,68,0.25)' }}>
+            <div style={{ width:7, height:7, borderRadius:'50%', background:'#EF4444', animation:'pulse 1s infinite' }} />
+            <span style={{ fontSize:12.5, color:'#FC8181', fontWeight:600, flex:1 }}>Recording... {fmt(recordingTime)}</span>
+            <button onClick={stopRecording} style={{ padding:'4px 10px', borderRadius:7, background:'#EF4444', border:'none', color:'#fff', fontSize:11.5, cursor:'pointer' }}>Stop</button>
+          </div>
+        )}
+        <div style={{ display:'flex', alignItems:'flex-end', gap:7 }}>
+          <input ref={fileInputRef} type="file" accept="image/*,video/*" onChange={handleFile} style={{ display:'none' }} />
+          <button onClick={()=>fileInputRef.current?.click()} style={{ width:38, height:38, borderRadius:9, background:'var(--bg-elevated)', border:'1px solid var(--border)', color:'var(--text-muted)', fontSize:17, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>📎</button>
+          <button onMouseDown={startRecording} onMouseUp={stopRecording} onTouchStart={e=>{e.preventDefault();startRecording();}} onTouchEnd={e=>{e.preventDefault();stopRecording();}}
+            style={{ width:38, height:38, borderRadius:9, background:recording?'#EF4444':'var(--bg-elevated)', border:`1px solid ${recording?'#EF4444':'var(--border)'}`, color:recording?'#fff':'var(--text-muted)', fontSize:17, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>🎤</button>
+          <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={handleKey}
+            placeholder="Reply to parent..."
+            rows={1} style={{ flex:1, padding:'9px 12px', background:'var(--bg-elevated)', border:'1.5px solid var(--border)', borderRadius:10, resize:'none', color:'var(--text)', fontFamily:'var(--font-body)', fontSize:'16px', maxHeight:90, lineHeight:1.5, outline:'none', transition:'border-color 0.15s' }}
+            onFocus={e=>e.target.style.borderColor='var(--maroon-light)'}
+            onBlur={e=>e.target.style.borderColor='var(--border)'}
+          />
+          <button onClick={sendText} disabled={!input.trim()}
+            style={{ width:38, height:38, borderRadius:9, background:input.trim()?'linear-gradient(135deg,var(--maroon),var(--maroon-light))':'var(--bg-elevated)', border:`1px solid ${input.trim()?'var(--maroon)':'var(--border)'}`, color:input.trim()?'#fff':'var(--text-muted)', fontSize:16, cursor:input.trim()?'pointer':'not-allowed', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>➤</button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div style={{ height:'calc(100dvh - var(--header-height) - 32px)', display:'flex', gap:16 }}>
+    <div style={{ height:'calc(100dvh - var(--header-height) - 28px)', display:'flex', gap:14 }}>
       {/* Conversations list */}
-      <div style={{
-        width:300, flexShrink:0, background:'var(--bg-card)',
+      <div className={`conv-list${showConvs?'':' conv-hidden'}`} style={{
+        width:290, flexShrink:0, background:'var(--bg-card)',
         borderRadius:16, border:'1px solid var(--border)',
         display:'flex', flexDirection:'column', overflow:'hidden',
       }}>
-        <div style={{ padding:'16px 18px', borderBottom:'1px solid var(--border)' }}>
+        <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
           <h3 style={{ fontFamily:'var(--font-display)', fontSize:18, color:'var(--text)' }}>💬 Messages</h3>
-          <p style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>{conversations.length} conversations</p>
+          <p style={{ fontSize:11.5, color:'var(--text-muted)', marginTop:2 }}>{conversations.length} conversations</p>
         </div>
         <div style={{ flex:1, overflowY:'auto' }}>
           {loadingConvs ? (
@@ -152,36 +240,29 @@ export default function AdminChat() {
               <div style={{ fontSize:32, marginBottom:8 }}>💬</div>No messages yet
             </div>
           ) : conversations.map(conv => (
-            <div key={conv._id} onClick={() => openConversation(conv.parent)}
+            <div key={conv._id} onClick={()=>openConversation(conv.parent)}
               style={{
-                padding:'13px 18px', cursor:'pointer', transition:'all 0.12s',
+                padding:'12px 16px', cursor:'pointer', transition:'all 0.12s',
                 borderBottom:'1px solid var(--border)',
-                background: activeParent?._id===conv._id?.toString() ? 'var(--maroon-pale)' : 'transparent',
-                borderLeft: activeParent?._id===conv._id?.toString() ? '3px solid var(--maroon-light)' : '3px solid transparent',
+                background:activeParent?._id===conv.parent?._id?'rgba(155,24,38,0.12)':'transparent',
+                borderLeft:`3px solid ${activeParent?._id===conv.parent?._id?'var(--maroon-light)':'transparent'}`,
               }}
-              onMouseEnter={e=>{ if(activeParent?._id!==conv._id?.toString()) e.currentTarget.style.background='var(--bg-elevated)'; }}
-              onMouseLeave={e=>{ if(activeParent?._id!==conv._id?.toString()) e.currentTarget.style.background='transparent'; }}
+              onMouseEnter={e=>{ if(activeParent?._id!==conv.parent?._id) e.currentTarget.style.background='rgba(255,255,255,0.04)'; }}
+              onMouseLeave={e=>{ if(activeParent?._id!==conv.parent?._id) e.currentTarget.style.background='transparent'; }}
             >
               <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <div style={{
-                  width:36, height:36, borderRadius:'50%', flexShrink:0,
-                  background:'linear-gradient(135deg,var(--maroon),var(--maroon-light))',
-                  display:'flex', alignItems:'center', justifyContent:'center',
-                  fontSize:14, fontWeight:700, color:'#fff',
-                }}>
-                  {conv.parent?.name?.[0]?.toUpperCase() || '?'}
+                <div style={{ width:34, height:34, borderRadius:'50%', background:'linear-gradient(135deg,var(--maroon),var(--maroon-light))', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700, color:'#fff', flexShrink:0 }}>
+                  {conv.parent?.name?.[0]?.toUpperCase()||'?'}
                 </div>
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:600, fontSize:13.5, color:'var(--text)', display:'flex', justifyContent:'space-between' }}>
-                    <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{conv.parent?.name || 'Unknown'}</span>
+                  <div style={{ fontWeight:600, fontSize:13, color:'var(--text)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{conv.parent?.name||'Unknown'}</span>
                     {conv.unreadCount>0 && (
-                      <span style={{ background:'var(--maroon)', color:'#fff', borderRadius:999, fontSize:10, fontWeight:700, padding:'2px 6px', flexShrink:0, marginLeft:4 }}>
-                        {conv.unreadCount}
-                      </span>
+                      <span style={{ background:'var(--maroon)', color:'#fff', borderRadius:999, fontSize:10, fontWeight:700, padding:'1px 6px', flexShrink:0, marginLeft:4 }}>{conv.unreadCount}</span>
                     )}
                   </div>
-                  <div style={{ fontSize:12, color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:1 }}>
-                    {msgTypeIcon(conv.lastMessageType)} {conv.lastMessage?.substring(0,35)}{conv.lastMessage?.length>35?'...':''}
+                  <div style={{ fontSize:11.5, color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:1 }}>
+                    {msgTypeIcon(conv.lastMessageType)} {conv.lastMessage?.substring(0,32)}{conv.lastMessage?.length>32?'...':''}
                   </div>
                 </div>
               </div>
@@ -191,109 +272,31 @@ export default function AdminChat() {
       </div>
 
       {/* Chat area */}
-      <div style={{ flex:1, display:'flex', flexDirection:'column', background:'var(--bg-card)', borderRadius:16, border:'1px solid var(--border)', overflow:'hidden', minWidth:0 }}>
+      <div className={`chat-area${!showConvs?'':' chat-hidden'}`} style={{
+        flex:1, display:'flex', flexDirection:'column',
+        background:'var(--bg-card)', borderRadius:16,
+        border:'1px solid var(--border)', overflow:'hidden', minWidth:0,
+      }}>
         {!activeParent ? (
-          <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)' }}>
+          <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', textAlign:'center', padding:20 }}>
             <div style={{ fontSize:52, marginBottom:12 }}>💬</div>
             <div style={{ fontSize:16, fontWeight:600 }}>Select a conversation</div>
-            <div style={{ fontSize:13, marginTop:4 }}>Choose a parent from the left</div>
+            <div style={{ fontSize:13, marginTop:4 }}>Choose a parent from the left to reply</div>
           </div>
-        ) : (
-          <>
-            {/* Chat header */}
-            <div style={{ padding:'14px 18px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:12 }}>
-              <div style={{ width:38, height:38, borderRadius:'50%', background:'linear-gradient(135deg,var(--maroon),var(--maroon-light))', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:700, color:'#fff' }}>
-                {activeParent.name?.[0]?.toUpperCase()}
-              </div>
-              <div>
-                <div style={{ fontWeight:600, fontSize:15, color:'var(--text)' }}>{activeParent.name}</div>
-                <div style={{ fontSize:12, color:'var(--text-muted)' }}>{activeParent.email}</div>
-              </div>
-            </div>
-
-            {/* Messages */}
-            <div style={{ flex:1, overflowY:'auto', padding:'16px', display:'flex', flexDirection:'column', gap:10 }}>
-              {loadingMsgs ? (
-                <div style={{ display:'flex', justifyContent:'center', alignItems:'center', flex:1 }}><div className="spinner spinner-dark" /></div>
-              ) : messages.length===0 ? (
-                <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)' }}>
-                  <div style={{ fontSize:40, marginBottom:8 }}>💬</div>
-                  <div style={{ fontSize:14 }}>No messages yet. Start the conversation!</div>
-                </div>
-              ) : messages.map(msg => {
-                const isMe = msg.sender?._id===user._id || msg.sender===user._id;
-                const time = new Date(msg.createdAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-                return (
-                  <div key={msg._id} style={{ display:'flex', justifyContent:isMe?'flex-end':'flex-start', gap:8 }}>
-                    {!isMe && (
-                      <div style={{ width:30, height:30, borderRadius:'50%', background:'linear-gradient(135deg,var(--maroon),var(--maroon-light))', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, color:'#fff', fontWeight:700, flexShrink:0, alignSelf:'flex-end' }}>
-                        {msg.sender?.name?.[0]?.toUpperCase()||'P'}
-                      </div>
-                    )}
-                    <div style={{ maxWidth:'70%' }}>
-                      <div style={{
-                        padding: msg.messageType==='text'?'10px 14px':'8px 10px',
-                        borderRadius:14,
-                        borderBottomRightRadius:isMe?4:14,
-                        borderBottomLeftRadius:isMe?14:4,
-                        background:isMe?'linear-gradient(135deg,var(--maroon),var(--maroon-light))':'var(--bg-elevated)',
-                        border:isMe?'none':'1px solid var(--border)',
-                        boxShadow:isMe?'0 0 10px var(--maroon-glow)':'none',
-                      }}>
-                        {msg.messageType==='text' && <p style={{ fontSize:14, color:isMe?'#fff':'var(--text)', lineHeight:1.5, margin:0 }}>{msg.content}</p>}
-                        {msg.messageType==='voice' && msg.mediaData && (
-                          <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:160 }}>
-                            <span style={{ fontSize:18 }}>🎤</span>
-                            <audio controls src={msg.mediaData} style={{ height:30, flex:1 }} />
-                            {msg.duration && <span style={{ fontSize:11, color:isMe?'rgba(255,255,255,0.7)':'var(--text-muted)' }}>{fmt(msg.duration)}</span>}
-                          </div>
-                        )}
-                        {msg.messageType==='image' && msg.mediaData && (
-                          <img src={msg.mediaData} alt="Photo" style={{ maxWidth:200, maxHeight:200, borderRadius:8, display:'block', cursor:'pointer' }}
-                            onClick={()=>window.open(msg.mediaData,'_blank')} />
-                        )}
-                        {msg.messageType==='video' && msg.mediaData && (
-                          <video controls src={msg.mediaData} style={{ maxWidth:200, maxHeight:160, borderRadius:8, display:'block' }} />
-                        )}
-                      </div>
-                      <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2, textAlign:isMe?'right':'left' }}>{time}</div>
-                    </div>
-                  </div>
-                );
-              })}
-              <div ref={bottomRef} />
-            </div>
-
-            {/* Input */}
-            <div style={{ padding:'12px 14px', borderTop:'1px solid var(--border)' }}>
-              {recording && (
-                <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', marginBottom:8, background:'var(--red-bg)', borderRadius:10, border:'1px solid var(--red-border)' }}>
-                  <div style={{ width:8, height:8, borderRadius:'50%', background:'var(--red)', animation:'pulse 1s infinite' }} />
-                  <span style={{ fontSize:13, color:'var(--red)', fontWeight:600 }}>Recording... {fmt(recordingTime)}</span>
-                  <button onClick={stopRecording} className="btn btn-danger btn-sm" style={{ marginLeft:'auto' }}>⬛ Stop & Send</button>
-                </div>
-              )}
-              <div style={{ display:'flex', alignItems:'flex-end', gap:8 }}>
-                <input ref={fileInputRef} type="file" accept="image/*,video/*" onChange={handleFile} style={{ display:'none' }} />
-                <button onClick={()=>fileInputRef.current?.click()} style={{ width:38, height:38, borderRadius:8, background:'var(--bg-elevated)', border:'1px solid var(--border)', color:'var(--text-muted)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:'pointer', flexShrink:0 }}
-                  onMouseEnter={e=>{ e.currentTarget.style.borderColor='var(--gold)'; e.currentTarget.style.color='var(--gold)'; }}
-                  onMouseLeave={e=>{ e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.color='var(--text-muted)'; }}>📎</button>
-                <button onMouseDown={startRecording} onMouseUp={stopRecording} onTouchStart={startRecording} onTouchEnd={stopRecording}
-                  style={{ width:38, height:38, borderRadius:8, background:recording?'var(--red)':'var(--bg-elevated)', border:`1px solid ${recording?'var(--red)':'var(--border)'}`, color:recording?'#fff':'var(--text-muted)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:'pointer', flexShrink:0 }}>🎤</button>
-                <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={handleKey}
-                  placeholder="Reply to parent..." rows={1}
-                  style={{ flex:1, padding:'9px 13px', background:'var(--bg-elevated)', border:'1.5px solid var(--border)', borderRadius:10, resize:'none', color:'var(--text)', fontFamily:'var(--font-body)', fontSize:'16px', maxHeight:100, lineHeight:1.5, transition:'border-color 0.15s' }}
-                  onFocus={e=>e.target.style.borderColor='var(--maroon-light)'}
-                  onBlur={e=>e.target.style.borderColor='var(--border)'}
-                />
-                <button onClick={sendText} disabled={!input.trim()}
-                  style={{ width:38, height:38, borderRadius:8, flexShrink:0, background:input.trim()?'linear-gradient(135deg,var(--maroon),var(--maroon-light))':'var(--bg-elevated)', border:`1px solid ${input.trim()?'var(--maroon)':'var(--border)'}`, color:input.trim()?'#fff':'var(--text-muted)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:input.trim()?'pointer':'not-allowed', transition:'all 0.15s' }}>➤</button>
-              </div>
-            </div>
-          </>
-        )}
+        ) : <ChatArea />}
       </div>
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+
+      <style>{`
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}}
+        @media (max-width: 768px) {
+          .conv-list { width: 100% !important; border-radius: 16px !important; }
+          .conv-hidden { display: none !important; }
+          .chat-area { width: 100% !important; border-radius: 16px !important; position: absolute; inset: var(--header-height) 0 0 0; margin: 14px; width: calc(100% - 28px) !important; }
+          .chat-hidden { display: none !important; }
+          .show-mobile-btn { display: flex !important; }
+          div[style*="gap: 14px"] { position: relative; }
+        }
+      `}</style>
     </div>
   );
 }

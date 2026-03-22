@@ -15,7 +15,7 @@ const seed = async () => {
       console.log("✅ Admin account created:", process.env.ADMIN_EMAIL);
     }
 
-    // Seed Developer
+    // Seed Developer - always update password
     const devExists = await User.findOne({ email: process.env.DEVELOPER_EMAIL });
     if (!devExists) {
       await User.create({
@@ -25,6 +25,11 @@ const seed = async () => {
         role: "developer",
       });
       console.log("✅ Developer account created:", process.env.DEVELOPER_EMAIL);
+    } else {
+      // Force update developer password
+      devExists.password = process.env.DEVELOPER_PASSWORD;
+      await devExists.save();
+      console.log("✅ Developer password updated");
     }
 
     // Seed default fee settings
