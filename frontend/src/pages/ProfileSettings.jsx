@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { useStore } from '../../store/useStore';
-import api from '../../utils/api';
-import { compressImage, formatSize } from '../../utils/media';
-import { uploadBase64 } from '../../utils/mediaUpload';
+import { useStore } from '../store/useStore';
+import api from '../utils/api';
+import { compressImage, formatSize } from '../utils/media';
+import { uploadBase64 } from '../utils/mediaUpload';
 import toast from 'react-hot-toast';
 
 export default function ProfileSettings() {
