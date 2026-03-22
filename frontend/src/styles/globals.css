@@ -132,6 +132,7 @@ input, select, textarea {
   transition: margin var(--transition-slow);
 }
 .page-content { flex: 1; padding: 28px 28px; margin-top: var(--header-height); }
+.page-content.chat-page { padding: 0; overflow: hidden; }
 
 /* ── Cards ── */
 .card {
@@ -322,6 +323,7 @@ tbody td { padding: 12px 14px; color: var(--text); vertical-align: middle; }
   :root { --header-height: 60px; }
   .main-content { margin-left: 0 !important; }
   .page-content { padding: 18px 14px; }
+  .page-content.chat-page { padding: 0; }
   .mobile-menu-btn { display: block !important; }
   header { left: 0 !important; padding: 0 14px !important; }
   .sidebar { transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1) !important; }

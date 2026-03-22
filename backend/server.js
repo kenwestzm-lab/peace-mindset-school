@@ -105,10 +105,15 @@ io.on("connection", (socket) => {
     connectedUsers.set(userId, socket.id);
     socket.join(`user:${userId}`);
     console.log(`User ${userId} joined room user:${userId}`);
+    // Broadcast online status to admin
+    io.to("admin_room").emit("user_online", { userId, online: true });
   });
 
   socket.on("join_admin", () => {
     socket.join("admin_room");
+    // Send current online users to admin
+    const onlineUsers = Array.from(connectedUsers.keys());
+    socket.emit("online_users", { userIds: onlineUsers });
   });
 
   socket.on("join_developer", () => {
@@ -140,7 +145,10 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     connectedUsers.forEach((sid, uid) => {
-      if (sid === socket.id) connectedUsers.delete(uid);
+      if (sid === socket.id) {
+        connectedUsers.delete(uid);
+        io.to("admin_room").emit("user_online", { userId: uid, online: false });
+      }
     });
     console.log("🔌 Socket disconnected:", socket.id);
   });
