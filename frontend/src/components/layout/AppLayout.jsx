@@ -12,6 +12,7 @@ export default function AppLayout() {
   const location = useLocation();
 
   // Check if we're on a chat page (needs full screen)
+  const isMobile = window.innerWidth <= 768;
   const isChatPage = location.pathname.includes('/chat');
 
   useEffect(() => {
@@ -51,7 +52,7 @@ export default function AppLayout() {
   return (
     <div className="app-layout">
       <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
-      <div className="main-content">
+      <div className="main-content" style={{marginLeft: isMobile ? 0 : "var(--sidebar-width)", width: isMobile ? "100%" : undefined}}>
         <Header onMenuToggle={() => setMobileOpen(!mobileOpen)} />
         <main className={`page-content${isChatPage?' chat-page':''}`}>
           <Outlet />
