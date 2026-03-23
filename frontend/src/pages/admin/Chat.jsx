@@ -1,422 +1,490 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useStore } from '../../store/useStore';
 import api from '../../utils/api';
 import { getSocket } from '../../utils/socket';
-import { compressImage, compressVideo, formatSize, shareMedia, downloadMedia } from '../../utils/media';
+import { useStore } from '../../store/useStore';
 import toast from 'react-hot-toast';
-import { smartUpload, formatFileSize } from '../../utils/fileUpload';
 
+const fmt = (d) => d ? new Date(d).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }) : '';
+const fmtDate = (d) => {
+  if (!d) return '';
+  const now = new Date(); const dd = new Date(d);
+  const diff = Math.floor((now - dd) / 86400000);
+  if (diff === 0) return 'Today'; if (diff === 1) return 'Yesterday';
+  return dd.toLocaleDateString('en-GB', { day:'2-digit', month:'short' });
+};
+const timeLeft = (exp) => {
+  const diff = new Date(exp) - new Date();
+  if (diff <= 0) return 'Expired';
+  const h = Math.floor(diff / 3600000); const m = Math.floor((diff % 3600000) / 60000);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+};
 
-const fmt = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
-
-function Avatar({ name, src, size = 40, online }) {
+// ─── Story Viewer ─────────────────────────────────────────────────────────────
+function StoryViewer({ stories, startIdx, onClose, currentUser }) {
+  const [idx, setIdx] = useState(startIdx || 0);
+  const [progress, setProgress] = useState(0);
+  const timerRef = useRef(null);
+  const story = stories[idx];
+  useEffect(() => {
+    if (!story) return;
+    api.put(`/stories/${story._id}/view`).catch(() => {});
+    setProgress(0);
+    const duration = story.mediaType === 'video' ? 15000 : 5000;
+    const step = 100 / (duration / 100);
+    timerRef.current = setInterval(() => {
+      setProgress(p => {
+        if (p >= 100) { clearInterval(timerRef.current); if (idx < stories.length - 1) setIdx(i => i + 1); else onClose(); return 100; }
+        return p + step;
+      });
+    }, 100);
+    return () => clearInterval(timerRef.current);
+  }, [idx]);
+  if (!story) return null;
   return (
-    <div style={{ position:'relative', flexShrink:0 }}>
-      <div style={{
-        width:size, height:size, borderRadius:'50%', overflow:'hidden',
-        background:'linear-gradient(135deg,#9B1826,#C02035)',
-        display:'flex', alignItems:'center', justifyContent:'center',
-        fontSize:size*0.38, fontWeight:700, color:'#fff',
-      }}>
-        {src ? <img src={src} alt={name} style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/> : (name?.[0]?.toUpperCase()||'?')}
+    <div style={{ position:'fixed', inset:0, background:'#000', zIndex:9999, display:'flex', flexDirection:'column' }}>
+      <div style={{ display:'flex', gap:3, padding:'12px 12px 0', flexShrink:0 }}>
+        {stories.map((_, i) => (
+          <div key={i} style={{ flex:1, height:3, background:'rgba(255,255,255,0.3)', borderRadius:2, overflow:'hidden' }}>
+            <div style={{ height:'100%', background:'#fff', width:`${i < idx ? 100 : i === idx ? progress : 0}%` }} />
+          </div>))}
       </div>
-      {online !== undefined && (
-        <span style={{ position:'absolute', bottom:1, right:1, width:size*0.27, height:size*0.27, borderRadius:'50%', background:online?'#25D366':'#555', border:'2px solid #111B21' }} />
-      )}
-    </div>
-  );
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', flexShrink:0 }}>
+        <div style={{ width:36, height:36, borderRadius:'50%', background:'#2A3942', overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:700, color:'#fff' }}>
+          {story.author?.profilePic ? <img src={story.author.profilePic} style={{ width:'100%', height:'100%', objectFit:'cover' }} alt="" /> : story.author?.name?.[0]?.toUpperCase()}
+        </div>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:14, fontWeight:600, color:'#fff' }}>{story.author?.name}</div>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)' }}>{timeLeft(story.expiresAt)}</div>
+        </div>
+        <button onClick={onClose} style={{ background:'none', border:'none', color:'#fff', fontSize:22, cursor:'pointer' }}>✕</button>
+      </div>
+      <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', position:'relative' }}
+        onClick={e => { const x = e.clientX / window.innerWidth; if (x < 0.35) { if (idx > 0) { clearInterval(timerRef.current); setIdx(i => i - 1); } } else { clearInterval(timerRef.current); if (idx < stories.length - 1) setIdx(i => i + 1); else onClose(); } }}>
+        {story.mediaType === 'image' && story.mediaData && <img src={story.mediaData} style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain' }} alt="" />}
+        {story.mediaType === 'video' && story.mediaData && <video src={story.mediaData} autoPlay muted style={{ maxWidth:'100%', maxHeight:'100%' }} />}
+        {story.text && <div style={{ position:'absolute', bottom:80, left:0, right:0, padding:'16px 20px', background:'linear-gradient(transparent,rgba(0,0,0,0.7))' }}>
+          <p style={{ color:'#fff', fontSize:16, fontWeight:500, margin:0, textAlign:'center' }}>{story.text}</p>
+        </div>}
+      </div>
+      {story.author?._id === currentUser?._id && (
+        <div style={{ padding:'10px 16px', color:'rgba(255,255,255,0.7)', fontSize:13, display:'flex', gap:6 }}>
+          <span>👁</span><span>{story.viewers?.length || 0} views</span>
+        </div>)}
+    </div>);
 }
 
-function MsgBubble({ msg, isMe, userId, onDelete, onShare, onDownload, onReact }) {
-  const [menu, setMenu] = useState(false);
+// ─── Bubble ───────────────────────────────────────────────────────────────────
+function Bubble({ msg, isMe, onLongPress }) {
   const [imgFull, setImgFull] = useState(false);
-  const time = new Date(msg.createdAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-  const isDeleted = msg.deletedForEveryone;
-
+  const pressTimer = useRef(null);
+  const moved = useRef(false);
+  const time = fmt(msg.createdAt);
+  const deleted = msg.deletedForEveryone;
+  const onTouchStart = () => { moved.current = false; pressTimer.current = setTimeout(() => { if (!moved.current) { navigator.vibrate?.(40); onLongPress(msg); } }, 450); };
+  const onTouchMove = () => { moved.current = true; };
+  const onTouchEnd = () => clearTimeout(pressTimer.current);
   return (
     <>
-      {imgFull && (
-        <div onClick={()=>setImgFull(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.95)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center'}}>
-          <img src={msg.mediaData} alt="" style={{maxWidth:'95vw',maxHeight:'90vh',objectFit:'contain', background:'#000'}}/>
-          <div style={{position:'absolute',bottom:24,display:'flex',gap:12}}>
-            <button onClick={e=>{e.stopPropagation();downloadMedia(msg.mediaData,'photo.jpg');}} style={shareBtn}>⬇ Save</button>
-            <button onClick={e=>{e.stopPropagation();shareMedia(msg.mediaData,'photo.jpg');}} style={shareBtn}>↗ Share</button>
-          </div>
-        </div>
-      )}
-      <div style={{display:'flex',flexDirection:isMe?'row-reverse':'row',gap:6,alignItems:'flex-end',marginBottom:4,position:'relative'}}
-        onContextMenu={e=>{e.preventDefault();setMenu(!menu);}}>
-        {menu && (
-          <div style={{position:'absolute',[isMe?'right':'left']:0,bottom:'100%',zIndex:50,background:'#1F2C34',border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,overflow:'hidden',minWidth:170,boxShadow:'0 8px 32px rgba(0,0,0,0.7)'}}>
-            <div style={{display:'flex',padding:'8px 12px',gap:4,borderBottom:'0.5px solid rgba(255,255,255,0.08)'}}>
-              {['❤️','👍','😂','😮','😢','🙏'].map(e=>(
-                <button key={e} onClick={()=>{onReact(msg._id,e);setMenu(false);}} style={{background:'none',border:'none',fontSize:18,cursor:'pointer',padding:'2px 4px'}}>{e}</button>
-              ))}
-            </div>
-            {msg.mediaData&&!isDeleted&&<>
-              <button onClick={()=>{onDownload(msg);setMenu(false);}} style={menuBtn}>⬇ Download</button>
-              <button onClick={()=>{onShare(msg);setMenu(false);}} style={menuBtn}>↗ Share</button>
-            </>}
-            <button onClick={()=>{onDelete(msg._id,false);setMenu(false);}} style={{...menuBtn,color:'#FC8181'}}>🗑 Delete for me</button>
-            {isMe&&<button onClick={()=>{onDelete(msg._id,true);setMenu(false);}} style={{...menuBtn,color:'#FC8181'}}>🗑 Delete for everyone</button>}
-            <button onClick={()=>setMenu(false)} style={{...menuBtn,color:'#666'}}>✕ Cancel</button>
-          </div>
-        )}
-        <div style={{maxWidth:'78%'}}>
-          <div style={{
-            padding:msg.mediaData&&!isDeleted?'4px':'9px 13px',
-            borderRadius:18,borderBottomRightRadius:isMe?4:18,borderBottomLeftRadius:isMe?18:4,
-            background:isMe?'linear-gradient(135deg,#005C4B,#128C7E)':'rgba(255,255,255,0.07)',
-            border:isMe?'none':'1px solid rgba(255,255,255,0.08)',
-          }}>
-            {isDeleted?<p style={{fontSize:13,color:'rgba(255,255,255,0.35)',fontStyle:'italic',margin:0,padding:'2px 4px'}}>🚫 Deleted</p>:<>
-              {msg.messageType==='text'&&<p style={{fontSize:14.5,color:'#E9EDEF',lineHeight:1.55,margin:0,wordBreak:'break-word'}}>{msg.content}</p>}
-              {msg.messageType==='voice'&&msg.mediaData&&<div style={{display:'flex',alignItems:'center',gap:8,minWidth:180,padding:'4px 6px'}}>
-                <span>🎤</span><audio controls src={msg.mediaData} style={{flex:1,height:32}}/>
-                {msg.duration&&<span style={{fontSize:10,color:'rgba(255,255,255,0.4)'}}>{fmt(msg.duration)}</span>}
-              </div>}
-              {msg.messageType==='image'&&msg.mediaData&&<div style={{position:'relative'}}>
-                <img src={msg.mediaData} alt="Photo" onClick={()=>setImgFull(true)} style={{maxWidth:220,maxHeight:260,borderRadius:14,display:'block',cursor:'pointer',objectFit:'cover'}}/>
-                <button onClick={e=>{e.stopPropagation();shareMedia(msg.mediaData,'photo.jpg');}} style={floatBtn}>↗</button>
-              </div>}
-              {msg.messageType==='video'&&msg.mediaData&&<div style={{position:'relative'}}>
-                <video controls src={msg.mediaData} style={{maxWidth:220,maxHeight:180,borderRadius:14,display:'block'}}/>
-                <button onClick={e=>{e.stopPropagation();shareMedia(msg.mediaData,'video.mp4');}} style={floatBtn}>↗</button>
-              </div>}
-            </>}
-          </div>
-          {msg.reactions?.length>0&&(
-            <div style={{display:'flex',gap:2,marginTop:2,flexWrap:'wrap',justifyContent:isMe?'flex-end':'flex-start'}}>
-              {Object.entries(msg.reactions.reduce((a,r)=>{a[r.emoji]=(a[r.emoji]||0)+1;return a;},{})).map(([em,cnt])=>(
-                <span key={em} onClick={()=>onReact(msg._id,em)} style={{background:'rgba(255,255,255,0.08)',borderRadius:999,padding:'1px 6px',fontSize:12,cursor:'pointer'}}>{em}{cnt>1?' '+cnt:''}</span>
-              ))}
-            </div>
-          )}
-          <div style={{display:'flex',alignItems:'center',gap:3,marginTop:2,justifyContent:isMe?'flex-end':'flex-start',paddingLeft:4,paddingRight:4}}>
-            <span style={{fontSize:10.5,color:'rgba(255,255,255,0.3)'}}>{time}</span>
-            {isMe&&<span style={{fontSize:11,color:msg.isRead?'#53BDEB':'rgba(255,255,255,0.3)'}}>✓✓</span>}
+      <div style={{ display:'flex', justifyContent: isMe ? 'flex-end' : 'flex-start', marginBottom:2, padding:'0 10px' }}
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+        onMouseDown={onTouchStart} onMouseUp={onTouchEnd}>
+        <div style={{ maxWidth:'72%', padding: deleted ? '8px 14px' : '8px 12px 6px', borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px', background: isMe ? 'linear-gradient(135deg,#005C4B,#128C7E)' : '#1F2C34', color: deleted ? 'rgba(255,255,255,0.4)' : '#E9EDEF', fontSize:15, lineHeight:1.45, wordBreak:'break-word', boxShadow:'0 1px 4px rgba(0,0,0,0.3)', fontStyle: deleted ? 'italic' : 'normal', position:'relative' }}>
+          {deleted ? <span>🚫 Message deleted</span> : (<>
+            {msg.messageType === 'image' && msg.mediaData && <img src={msg.mediaData} style={{ maxWidth:'100%', borderRadius:10, display:'block', marginBottom:4, cursor:'pointer' }} onClick={() => setImgFull(true)} alt="" />}
+            {msg.messageType === 'video' && msg.mediaData && <video src={msg.mediaData} controls style={{ maxWidth:'100%', borderRadius:10, display:'block', marginBottom:4 }} />}
+            {msg.messageType === 'voice' && msg.mediaData && <audio src={msg.mediaData} controls style={{ width:200, height:32 }} />}
+            {msg.content && <span>{msg.content}</span>}
+            {msg.reactions?.length > 0 && <div style={{ position:'absolute', bottom:-10, right:6, background:'#2A3942', borderRadius:10, padding:'2px 6px', fontSize:13, boxShadow:'0 1px 4px rgba(0,0,0,0.4)' }}>{[...new Set(msg.reactions.map(r => r.emoji))].join('')}<span style={{ fontSize:10, color:'#8696A0', marginLeft:3 }}>{msg.reactions.length}</span></div>}
+          </>)}
+          <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', gap:3, marginTop:2 }}>
+            <span style={{ fontSize:10, color:'rgba(255,255,255,0.45)' }}>{time}</span>
+            {isMe && !deleted && <span style={{ fontSize:11, color: msg.isRead ? '#53BDEB' : 'rgba(255,255,255,0.45)' }}>✓✓</span>}
           </div>
         </div>
       </div>
-    </>
-  );
+      {imgFull && msg.mediaData && <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.95)', zIndex:9998, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={() => setImgFull(false)}>
+        <img src={msg.mediaData} style={{ maxWidth:'95vw', maxHeight:'90vh', objectFit:'contain', borderRadius:8 }} alt="" />
+      </div>}
+    </>);
 }
 
-const menuBtn = {display:'flex',alignItems:'center',gap:8,width:'100%',padding:'10px 14px',background:'none',border:'none',color:'#E9EDEF',fontSize:13.5,cursor:'pointer',textAlign:'left'};
-const shareBtn = {padding:'8px 20px',background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.25)',color:'#fff',borderRadius:999,cursor:'pointer',fontSize:13};
-const floatBtn = {position:'absolute',top:6,right:6,background:'rgba(0,0,0,0.6)',border:'none',color:'#fff',borderRadius:'50%',width:28,height:28,cursor:'pointer',fontSize:12};
-
-function CreateGroupModal({ onClose, onCreated }) {
-  const [name, setName] = useState('');
-  const [parents, setParents] = useState([]);
-  const [selected, setSelected] = useState([]);
-  const [loading, setLoading] = useState(false);
-  useEffect(()=>{ api.get('/admin/parents').then(r=>setParents(r.data.parents||[])).catch(()=>{}); },[]);
-  const create = async () => {
-    if(!name.trim()){toast.error('Group name required');return;}
-    setLoading(true);
-    try{ const r=await api.post('/groups',{name,members:selected}); toast.success('Group created!'); onCreated(r.data.group); onClose(); }
-    catch{ toast.error('Failed'); } finally{ setLoading(false); }
-  };
-  return (
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:500,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-      <div style={{background:'#1F2C34',borderRadius:'20px 20px 0 0',padding:20,width:'100%',maxWidth:480,maxHeight:'80vh',display:'flex',flexDirection:'column',gap:12}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          <h3 style={{color:'#E9EDEF',fontWeight:700,fontSize:17}}>Create Group</h3>
-          <button onClick={onClose} style={{background:'none',border:'none',color:'#8696A0',fontSize:22,cursor:'pointer'}}>✕</button>
-        </div>
-        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Group name *" style={{padding:'11px 14px',background:'#2A3942',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12,color:'#E9EDEF',fontSize:14,outline:'none'}}/>
-        <p style={{fontSize:12,color:'#8696A0'}}>Add parents:</p>
-        <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
-          {parents.map(p=>(
-            <label key={p._id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:'rgba(255,255,255,0.04)',borderRadius:10,cursor:'pointer',border:`1px solid ${selected.includes(p._id)?'rgba(37,211,102,0.4)':'transparent'}`}}>
-              <input type="checkbox" checked={selected.includes(p._id)} onChange={()=>setSelected(prev=>prev.includes(p._id)?prev.filter(x=>x!==p._id):[...prev,p._id])} style={{width:16,height:16,accentColor:'#25D366'}}/>
-              <Avatar name={p.name} src={p.profilePic} size={32}/>
-              <span style={{fontSize:14,color:'#E9EDEF'}}>{p.name}</span>
-            </label>
-          ))}
-        </div>
-        <button onClick={create} disabled={loading} style={{padding:'13px',background:'linear-gradient(135deg,#00A884,#128C7E)',border:'none',borderRadius:12,color:'#fff',fontSize:15,fontWeight:700,cursor:'pointer'}}>
-          {loading?'Creating...':'✓ Create Group'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
+// ─── Main ─────────────────────────────────────────────────────────────────────
 export default function AdminChat() {
   const { user } = useStore();
-  const [screen, setScreen] = useState('list'); // 'list' | 'chat' | 'group'
-  const [tab, setTab] = useState('direct');
-  const [convs, setConvs] = useState([]);
-  const [groups, setGroups] = useState([]);
-  const [active, setActive] = useState(null);
-  const [activeGroup, setActiveGroup] = useState(null);
+
+  // Panel: 'list' | 'chat' | 'stories'
+  const [panel, setPanel] = useState('list');
+  const [parents, setParents] = useState([]);
+  const [selected, setSelected] = useState(null); // { _id, name, profilePic }
   const [messages, setMessages] = useState([]);
-  const [groupMessages, setGroupMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [parentTyping, setParentTyping] = useState({});
+  const [unread, setUnread] = useState({});
+  const [menu, setMenu] = useState(null);
   const [recording, setRecording] = useState(false);
-  const [recordSec, setRecordSec] = useState(0);
-  const [onlineUsers, setOnlineUsers] = useState(new Set());
-  const [loadingConvs, setLoadingConvs] = useState(true);
-  const [loadingMsgs, setLoadingMsgs] = useState(false);
-  const [mediaProgress, setMediaProgress] = useState(null);
-  const [showCreateGroup, setShowCreateGroup] = useState(false);
-  const [typingParents, setTypingParents] = useState({});
-  const msgsBox = useRef(null);
-  const mr = useRef(null);
-  const chunks = useRef([]);
-  const timer = useRef(null);
+  const [mediaRec, setMediaRec] = useState(null);
+  const [search, setSearch] = useState('');
+
+  // Stories
+  const [storyGroups, setStoryGroups] = useState([]);
+  const [myStories, setMyStories] = useState([]);
+  const [viewer, setViewer] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [storyMedia, setStoryMedia] = useState(null);
+  const [storyText, setStoryText] = useState('');
+  const [storyPreview, setStoryPreview] = useState(null);
+  const [posting, setPosting] = useState(false);
+
+  const bottomRef = useRef(null);
   const fileRef = useRef(null);
+  const storyFileRef = useRef(null);
+  const typingTimer = useRef(null);
 
-  const scrollBottom = useCallback(()=>{ setTimeout(()=>{ if(msgsBox.current) msgsBox.current.scrollTop=msgsBox.current.scrollHeight; },60); },[]);
+  // ── Load parents ──
+  const loadParents = useCallback(async () => {
+    try {
+      const res = await api.get('/admin/parents');
+      setParents(res.data.parents || []);
+    } catch {}
+  }, []);
 
-  const loadConvs = async () => {
-    try{ const r=await api.get('/chat/admin/conversations'); setConvs(r.data.conversations||[]); }
-    catch{} finally{ setLoadingConvs(false); }
+  // ── Load messages for selected parent ──
+  const loadMessages = useCallback(async (parentId) => {
+    if (!parentId) return;
+    try {
+      const res = await api.get(`/chat/messages/${parentId}`);
+      setMessages(res.data.messages || []);
+      setUnread(u => ({ ...u, [parentId]: 0 }));
+    } catch {}
+  }, []);
+
+  // ── Load stories ──
+  const loadStories = useCallback(async () => {
+    try {
+      const res = await api.get('/stories');
+      const all = res.data.stories || [];
+      const map = {};
+      all.forEach(s => { const aid = s.author?._id; if (!map[aid]) map[aid] = { author: s.author, items: [] }; map[aid].items.push(s); });
+      const mine = map[user?._id];
+      setMyStories(mine ? mine.items : []);
+      setStoryGroups(Object.values(map).filter(g => g.author?._id !== user?._id));
+    } catch {}
+  }, [user?._id]);
+
+  useEffect(() => { loadParents(); loadStories(); }, [loadParents, loadStories]);
+
+  // ── Select parent → load messages ──
+  useEffect(() => {
+    if (selected) loadMessages(selected._id);
+  }, [selected, loadMessages]);
+
+  // ── Socket ──
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+    socket.on('new_message', (msg) => {
+      const pid = msg.parentId;
+      setMessages(prev => {
+        if (selected?._id === pid) {
+          api.put(`/chat/${msg._id}/read`).catch(() => {});
+          return [...prev, msg];
+        }
+        return prev;
+      });
+      setUnread(u => selected?._id === pid ? u : { ...u, [pid]: (u[pid] || 0) + 1 });
+    });
+    socket.on('user_typing', ({ parentId, isTyping }) => {
+      setParentTyping(t => ({ ...t, [parentId]: isTyping }));
+    });
+    socket.on('message_deleted', ({ msgId, forEveryone }) => {
+      if (forEveryone) setMessages(prev => prev.map(m => m._id === msgId ? { ...m, deletedForEveryone: true } : m));
+    });
+    socket.on('message_reaction', ({ msgId }) => {
+      api.get(`/chat/message/${msgId}`).then(r => {
+        setMessages(prev => prev.map(m => m._id === msgId ? r.data.message : m));
+      }).catch(() => {});
+    });
+    socket.on('new_story', loadStories);
+    socket.on('stories_expired', loadStories);
+    return () => {
+      socket.off('new_message'); socket.off('user_typing');
+      socket.off('message_deleted'); socket.off('message_reaction');
+      socket.off('new_story'); socket.off('stories_expired');
+    };
+  }, [selected, loadStories]);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:'smooth' }); }, [messages]);
+
+  const handleTyping = (val) => {
+    setInput(val);
+    const socket = getSocket(); if (!socket) return;
+    socket.emit('typing', { isTyping:true, senderRole:'admin', parentId: selected?._id });
+    clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(() => socket.emit('typing', { isTyping:false, senderRole:'admin', parentId: selected?._id }), 1500);
   };
-  const loadGroups = async () => {
-    try{ const r=await api.get('/groups'); setGroups(r.data.groups||[]); } catch{}
+
+  const sendText = () => {
+    const txt = input.trim(); if (!txt || !selected) return;
+    const socket = getSocket(); if (!socket) return;
+    socket.emit('send_message', { senderId: user?._id, senderRole:'admin', parentId: selected._id, content: txt, messageType:'text' });
+    setInput('');
+    socket.emit('typing', { isTyping:false, senderRole:'admin', parentId: selected._id });
   };
 
-  useEffect(()=>{
-    loadConvs(); loadGroups();
-    const s=getSocket();
-    if(s){
-      s.on('new_message',(msg)=>{ setMessages(p=>p.find(m=>m._id===msg._id)?p:[...p,msg]); loadConvs(); scrollBottom(); });
-      s.on('new_group_message',(msg)=>{ setGroupMessages(p=>p.find(m=>m._id===msg._id)?p:[...p,msg]); loadGroups(); scrollBottom(); });
-      s.on('message_deleted',({msgId,forEveryone})=>{ setMessages(p=>p.map(m=>m._id===msgId?(forEveryone?{...m,deletedForEveryone:true,mediaData:null}:null):m).filter(Boolean)); });
-      s.on('user_online',({userId,online})=>setOnlineUsers(p=>{const n=new Set(p);online?n.add(userId):n.delete(userId);return n;}));
-      s.on('online_users',({userIds})=>setOnlineUsers(new Set(userIds)));
-      s.on('user_typing',({parentId,isTyping})=>setTypingParents(p=>({...p,[parentId]:isTyping})));
-    }
-    return ()=>{ s?.off('new_message');s?.off('new_group_message');s?.off('message_deleted');s?.off('user_online');s?.off('online_users');s?.off('user_typing'); };
-  },[]);
-
-  useEffect(()=>{ scrollBottom(); },[messages,groupMessages]);
-
-  const openChat = async (parent) => {
-    setActive(parent); setActiveGroup(null); setScreen('chat'); setLoadingMsgs(true);
-    try{ const r=await api.get(`/chat/${parent._id}`); setMessages(r.data.messages||[]); }
-    catch{} finally{ setLoadingMsgs(false); }
+  const sendMedia = async (file) => {
+    if (!file || !selected) return;
+    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) { toast.error('Images/videos only'); return; }
+    const reader = new FileReader();
+    reader.onload = e => {
+      const socket = getSocket(); if (!socket) return;
+      socket.emit('send_message', { senderId: user?._id, senderRole:'admin', parentId: selected._id, content:'', messageType: file.type.startsWith('image/') ? 'image' : 'video', mediaData: e.target.result, mediaMimeType: file.type });
+    };
+    reader.readAsDataURL(file);
   };
-  const openGroup = async (group) => {
-    setActiveGroup(group); setActive(null); setScreen('group'); setLoadingMsgs(true);
-    getSocket()?.emit('join_group',group._id);
-    try{ const r=await api.get(`/groups/${group._id}/messages`); setGroupMessages(r.data.messages||[]); }
-    catch{} finally{ setLoadingMsgs(false); }
-  };
-
-  const send = async (payload,isGroup=false) => {
-    const s=getSocket();
-    try{
-      if(isGroup&&activeGroup){
-        if(s?.connected) s.emit('send_group_message',{groupId:activeGroup._id,senderId:user._id,...payload});
-        else{ const r=await api.post(`/groups/${activeGroup._id}/messages`,payload); setGroupMessages(p=>[...p,r.data.message]); }
-      } else if(active){
-        if(s?.connected){
-          s.emit('send_message',{senderId:user._id,senderRole:'admin',parentId:active._id,...payload});
-          setMessages(p=>[...p,{_id:Date.now().toString(),sender:{_id:user._id,name:user.name,profilePic:user.profilePic},senderRole:'admin',parentId:active._id,createdAt:new Date().toISOString(),isRead:false,reactions:[],...payload}]);
-        } else{ const r=await api.post('/chat',{parentId:active._id,...payload}); setMessages(p=>[...p,r.data.message]); }
-      }
-      setInput(''); scrollBottom();
-    } catch{ toast.error('Send failed'); }
-    finally{ setMediaProgress(null); }
-  };
-
-  const sendText = () => { if(!input.trim()) return; send({content:input.trim(),messageType:'text'},screen==='group'); setInput(''); };
 
   const startRec = async () => {
-    try{
-      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-      mr.current=new MediaRecorder(stream,{mimeType:'audio/webm'});
-      chunks.current=[];
-      mr.current.ondataavailable=e=>chunks.current.push(e.data);
-      mr.current.onstop=()=>{
-        const blob=new Blob(chunks.current,{type:'audio/webm'});
-        const rd=new FileReader();
-        rd.onload=()=>send({content:'🎤 Voice message',messageType:'voice',mediaData:rd.result,mediaMimeType:'audio/webm',duration:recordSec},screen==='group');
-        rd.readAsDataURL(blob);
-        stream.getTracks().forEach(t=>t.stop()); setRecordSec(0);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+      const mr = new MediaRecorder(stream); const ch = [];
+      mr.ondataavailable = e => ch.push(e.data);
+      mr.onstop = async () => {
+        const blob = new Blob(ch, { type:'audio/webm' });
+        const reader = new FileReader();
+        reader.onload = e => {
+          const socket = getSocket(); if (!socket) return;
+          socket.emit('send_message', { senderId: user?._id, senderRole:'admin', parentId: selected?._id, content:'', messageType:'voice', mediaData: e.target.result, mediaMimeType:'audio/webm', duration: Math.round(blob.size/16000) });
+        };
+        reader.readAsDataURL(blob); stream.getTracks().forEach(t => t.stop());
       };
-      mr.current.start(); setRecording(true);
-      timer.current=setInterval(()=>setRecordSec(n=>n+1),1000);
-    } catch{ toast.error('Mic not available'); }
+      mr.start(); setMediaRec(mr); setRecording(true);
+    } catch { toast.error('Mic denied'); }
   };
-  const stopRec = () => { if(mr.current?.state==='recording'){mr.current.stop();clearInterval(timer.current);setRecording(false);} };
-  const cancelRec = () => { if(mr.current?.state==='recording'){mr.current.ondataavailable=null;mr.current.onstop=null;mr.current.stop();clearInterval(timer.current);setRecording(false);setRecordSec(0);} };
+  const stopRec = () => { mediaRec?.stop(); setRecording(false); setMediaRec(null); };
 
-  const handleFile = async (e) => {
-    const f=e.target.files[0]; if(!f) return;
-    const isImg=f.type.startsWith('image/'),isVid=f.type.startsWith('video/');
-    if(!isImg&&!isVid){toast.error('Images and videos only');return;}
-    if(f.size>1024*1024*1024){toast.error('Max 1GB');return;}
-    const isGroup=screen==='group';
-    try{
-      if(isImg){ setMediaProgress({progress:30,label:'Compressing...'}); const {data,sizeKB,originalKB}=await compressImage(f,1); setMediaProgress({progress:85,label:'Sending...'}); toast.success(`Photo: ${formatSize(originalKB)}→${formatSize(sizeKB)}`); await send({content:'📷 Photo',messageType:'image',mediaData:data,mediaMimeType:'image/jpeg'},isGroup); }
-      else{ setMediaProgress({progress:10,label:'Processing video...'}); const {data,sizeKB,originalKB,mimeType}=await compressVideo(f,15); setMediaProgress({progress:85,label:'Sending...'}); toast.success(`Video: ${formatSize(originalKB)}→${formatSize(sizeKB)}`); await send({content:'🎥 Video',messageType:'video',mediaData:data,mediaMimeType:mimeType||f.type},isGroup); }
-    } catch{ toast.error('Media failed'); setMediaProgress(null); }
-    e.target.value='';
+  const onDelete = async (msgId, forEveryone) => {
+    try { await api.delete(`/chat/${msgId}`, { data:{ forEveryone } }); if (forEveryone) setMessages(prev => prev.map(m => m._id === msgId ? { ...m, deletedForEveryone:true } : m)); else setMessages(prev => prev.filter(m => m._id !== msgId)); setMenu(null); } catch { toast.error('Delete failed'); }
+  };
+  const onReact = async (msgId, emoji) => { try { await api.put(`/chat/${msgId}/react`, { emoji }); setMenu(null); } catch {} };
+
+  const postStory = async () => {
+    if (!storyMedia && !storyText.trim()) { toast.error('Add media or text'); return; }
+    setPosting(true);
+    try {
+      let mediaData = null, mediaMimeType = null, mediaType = 'text';
+      if (storyMedia) {
+        await new Promise((res, rej) => { const r = new FileReader(); r.onload = e => { mediaData = e.target.result; res(); }; r.onerror = rej; r.readAsDataURL(storyMedia); });
+        mediaMimeType = storyMedia.type;
+        mediaType = storyMedia.type.startsWith('video/') ? 'video' : 'image';
+      }
+      await api.post('/stories', { mediaData, mediaMimeType, mediaType, text: storyText || null });
+      toast.success('Story posted!');
+      setShowCreate(false); setStoryMedia(null); setStoryText(''); setStoryPreview(null);
+      loadStories();
+    } catch (e) { toast.error(e.response?.data?.error || 'Failed'); } finally { setPosting(false); }
   };
 
-  const handleDelete = async (msgId,forEveryone) => {
-    try{ await api.delete(`/chat/${msgId}`,{data:{deleteForEveryone:forEveryone}}); if(forEveryone) setMessages(p=>p.map(m=>m._id===msgId?{...m,deletedForEveryone:true,mediaData:null}:m)); else setMessages(p=>p.filter(m=>m._id!==msgId)); toast.success(forEveryone?'Deleted for everyone':'Deleted'); } catch{ toast.error('Delete failed'); }
+  const grouped = messages.reduce((acc, msg) => {
+    const day = fmtDate(msg.createdAt);
+    if (!acc.length || acc[acc.length-1].date !== day) acc.push({ date:day, msgs:[msg] });
+    else acc[acc.length-1].msgs.push(msg);
+    return acc;
+  }, []);
+
+  const filteredParents = parents.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()) || p.email?.toLowerCase().includes(search.toLowerCase()));
+  const totalUnread = Object.values(unread).reduce((a, b) => a + b, 0);
+
+  // ── Styles ──
+  const S = {
+    root: { display:'flex', flexDirection:'column', height:'100dvh', background:'#0B141A', color:'#E9EDEF', fontFamily:"'Segoe UI', system-ui, sans-serif", overflow:'hidden' },
+    tabBar: { display:'flex', background:'#1F2C34', flexShrink:0, borderBottom:'1px solid rgba(255,255,255,0.08)' },
+    tab: (a) => ({ flex:1, padding:'12px 0', textAlign:'center', fontSize:13, fontWeight:600, cursor:'pointer', color: a ? '#25D366' : '#8696A0', borderBottom: a ? '2px solid #25D366' : '2px solid transparent', background:'none', border:'none', textTransform:'uppercase', letterSpacing:.5, position:'relative' }),
+    badge: { position:'absolute', top:6, right:'25%', background:'#25D366', color:'#fff', borderRadius:10, padding:'1px 6px', fontSize:10, fontWeight:700 },
+    // Parent list
+    listItem: (sel) => ({ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', cursor:'pointer', borderBottom:'0.5px solid rgba(255,255,255,0.04)', background: sel ? 'rgba(37,211,102,0.08)' : 'transparent', transition:'background .15s' }),
+    avatar: (color) => ({ width:46, height:46, borderRadius:'50%', background: color || 'linear-gradient(135deg,#9B1826,#C02035)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:17, fontWeight:700, color:'#fff', flexShrink:0, overflow:'hidden' }),
+    // Input bar
+    inputBar: { display:'flex', alignItems:'flex-end', gap:8, padding:'8px 10px', background:'#1F2C34', flexShrink:0, borderTop:'1px solid rgba(255,255,255,0.06)' },
+    textarea: { flex:1, padding:'11px 14px', background:'#2A3942', border:'1.5px solid rgba(255,255,255,0.06)', borderRadius:24, resize:'none', outline:'none', color:'#E9EDEF', fontSize:15, lineHeight:1.5, maxHeight:100, fontFamily:'inherit' },
+    iconBtn: { width:44, height:44, borderRadius:'50%', background:'#2A3942', border:'none', color:'#8696A0', fontSize:20, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 },
+    sendBtn: { width:46, height:46, borderRadius:'50%', flexShrink:0, background:'linear-gradient(135deg,#00A884,#128C7E)', border:'none', color:'#fff', fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' },
+    overlay: { position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:998, display:'flex', alignItems:'flex-end', justifyContent:'center' },
+    sheet: { background:'#1F2C34', borderRadius:'20px 20px 0 0', padding:'20px 16px 32px', width:'100%', maxWidth:480 },
+    menuOverlay: { position:'fixed', inset:0, zIndex:997, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.5)' },
+    menuBox: { background:'#233138', borderRadius:14, overflow:'hidden', width:240, boxShadow:'0 8px 32px rgba(0,0,0,0.7)' },
+    menuBtn: { display:'block', width:'100%', padding:'14px 18px', background:'none', border:'none', color:'#E9EDEF', fontSize:15, textAlign:'left', cursor:'pointer' },
+    storyRing: (hasNew) => ({ width:52, height:52, borderRadius:'50%', padding:2, background: hasNew ? 'linear-gradient(135deg,#25D366,#128C7E)' : 'rgba(255,255,255,0.15)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }),
+    storyInner: { width:'100%', height:'100%', borderRadius:'50%', overflow:'hidden', background:'#2A3942', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:700, color:'#fff' },
+    addBadge: { position:'absolute', bottom:0, right:0, width:18, height:18, borderRadius:'50%', background:'#25D366', color:'#fff', fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', border:'2px solid #0B141A' },
   };
-  const handleReact = async (msgId,emoji) => {
-    try{ await api.put(`/chat/${msgId}/react`,{emoji}); if(active){const r=await api.get(`/chat/${active._id}`);setMessages(r.data.messages||[]);} } catch{}
-  };
 
-  const isOnline = (id) => onlineUsers.has(id?.toString());
-  const currentMsgs = screen==='group'?groupMessages:messages;
-  const chatTarget = screen==='group'?activeGroup:active;
-
-  // ── CHAT SCREEN ────────────────────────────────────────────────────────────
-  if(screen==='chat'||screen==='group') return (
-    <div style={{position:'fixed',top:'var(--header-height)',left:0,right:0,bottom:0,display:'flex',flexDirection:'column',background:'#0B141A'}}>
-      {showCreateGroup&&<CreateGroupModal onClose={()=>setShowCreateGroup(false)} onCreated={g=>{setGroups(p=>[g,...p]);}}/>}
-      {/* Header */}
-      <div style={{padding:'10px 14px',background:'#1F2C34',borderBottom:'1px solid rgba(255,255,255,0.06)',display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
-        <button onClick={()=>setScreen('list')} style={{background:'none',border:'none',color:'#E9EDEF',fontSize:22,cursor:'pointer',padding:'4px 8px',marginLeft:-8}}>←</button>
-        <Avatar name={chatTarget?.name||'?'} src={chatTarget?.profilePic} size={42} online={screen==='chat'?isOnline(chatTarget?._id):undefined}/>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontWeight:600,fontSize:15,color:'#E9EDEF',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{screen==='group'?`👥 ${chatTarget?.name}`:chatTarget?.name||'Parent'}</div>
-          <div style={{fontSize:11,color:typingParents[chatTarget?._id]?'#25D366':'#8696A0',marginTop:1}}>
-            {screen==='group'?`${chatTarget?.members?.length||0} members`:typingParents[chatTarget?._id]?'✍ typing...':isOnline(chatTarget?._id)?'● Online':'○ Offline'}
-          </div>
-        </div>
-        <input ref={fileRef} type="file" accept="image/*,video/*" onChange={handleFile} style={{display:'none'}}/>
-        <button onClick={()=>fileRef.current?.click()} style={{background:'none',border:'none',color:'#8696A0',cursor:'pointer',fontSize:20,padding:4}}>📎</button>
-      </div>
-
-      {/* Messages */}
-      <div ref={msgsBox} style={{flex:1,overflowY:'auto',padding:'12px',display:'flex',flexDirection:'column',gap:4,WebkitOverflowScrolling:'touch',backgroundImage:`url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.015'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/svg%3E")`}}>
-        {loadingMsgs?<div style={{display:'flex',justifyContent:'center',padding:40}}><div className="spinner spinner-dark"/></div>
-        :currentMsgs.length===0?<div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',color:'#8696A0',textAlign:'center',padding:40}}>
-          <div style={{fontSize:52,marginBottom:12}}>💬</div>
-          <div style={{fontSize:15,fontWeight:600,color:'#E9EDEF',marginBottom:6}}>No messages yet</div>
-          <div style={{fontSize:13}}>Start the conversation</div>
-        </div>
-        :currentMsgs.map(msg=>{
-          const isMe=msg.sender?._id===user._id||msg.sender===user._id;
-          return <MsgBubble key={msg._id} msg={msg} isMe={isMe} userId={user._id} onDelete={handleDelete} onShare={m=>shareMedia(m.mediaData,m.messageType==='image'?'photo.jpg':'video.mp4')} onDownload={m=>downloadMedia(m.mediaData,m.messageType==='image'?'photo.jpg':'video.mp4')} onReact={handleReact}/>;
-        })}
-        <div style={{height:8}}/>
-      </div>
-
-      {/* Media progress */}
-      {mediaProgress&&<div style={{margin:'0 12px',padding:'7px 12px',background:'rgba(37,211,102,0.08)',borderRadius:10,display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
-        <div style={{flex:1,height:3,background:'rgba(255,255,255,0.08)',borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:`${mediaProgress.progress}%`,background:'#25D366',transition:'width 0.3s'}}/></div>
-        <span style={{fontSize:11,color:'#25D366'}}>{mediaProgress.label}</span>
-      </div>}
-
-      {/* Recording */}
-      {recording&&<div style={{margin:'0 12px',padding:'8px 12px',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.25)',borderRadius:10,display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
-        <div style={{width:9,height:9,borderRadius:'50%',background:'#EF4444',animation:'pulse 1s infinite'}}/>
-        <span style={{fontSize:13,color:'#FC8181',fontWeight:600,flex:1}}>🎤 {fmt(recordSec)}</span>
-        <button onClick={cancelRec} style={{padding:'4px 10px',borderRadius:8,background:'transparent',border:'1px solid rgba(239,68,68,0.4)',color:'#FC8181',fontSize:12,cursor:'pointer'}}>✕</button>
-        <button onClick={stopRec} style={{padding:'4px 12px',borderRadius:8,background:'#EF4444',border:'none',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>⬛ Send</button>
-      </div>}
-
-      {/* Input */}
-      <div style={{padding:'8px 12px 16px',background:'#1F2C34',borderTop:'1px solid rgba(255,255,255,0.05)',flexShrink:0}}>
-        <div style={{display:'flex',alignItems:'flex-end',gap:8}}>
-          <textarea value={input} onChange={e=>setInput(e.target.value)}
-            onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendText();}}}
-            placeholder={`Message ${screen==='group'?activeGroup?.name||'group':active?.name||''}...`}
-            rows={1} style={{flex:1,padding:'11px 14px',background:'#2A3942',border:'1.5px solid rgba(255,255,255,0.06)',borderRadius:24,resize:'none',outline:'none',color:'#E9EDEF',fontSize:'16px',lineHeight:1.5,maxHeight:100}}
-          />
-          {input.trim()?
-            <button onClick={sendText} style={sendBtn}>➤</button>:
-            <button onMouseDown={startRec} onMouseUp={stopRec} onTouchStart={e=>{e.preventDefault();startRec();}} onTouchEnd={e=>{e.preventDefault();stopRec();}}
-              style={{...sendBtn,background:recording?'#EF4444':'linear-gradient(135deg,#00A884,#128C7E)'}}>🎤</button>
-          }
-        </div>
-      </div>
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
-    </div>
-  );
-
-  // ── LIST SCREEN (default mobile view) ─────────────────────────────────────
   return (
-    <div style={{position:'fixed',top:'var(--header-height)',left:0,right:0,bottom:0,display:'flex',flexDirection:'column',background:'#111B21'}}>
-      {showCreateGroup&&<CreateGroupModal onClose={()=>setShowCreateGroup(false)} onCreated={g=>{setGroups(p=>[g,...p]);}}/>}
+    <div style={S.root}>
+      {viewer && <StoryViewer stories={viewer.stories} startIdx={viewer.startIdx} onClose={() => setViewer(null)} currentUser={user} />}
 
-      {/* Header */}
-      <div style={{padding:'14px 16px 0',background:'#111B21',flexShrink:0}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-          <h2 style={{color:'#E9EDEF',fontSize:22,fontWeight:700}}>Chats</h2>
-          <button onClick={()=>setShowCreateGroup(true)} style={{background:'rgba(37,211,102,0.15)',border:'1px solid rgba(37,211,102,0.3)',color:'#25D366',borderRadius:999,padding:'7px 16px',cursor:'pointer',fontSize:14,fontWeight:600}}>+ Group</button>
-        </div>
-        <div style={{display:'flex',borderBottom:'1px solid rgba(255,255,255,0.08)'}}>
-          {[['direct','Direct'],['groups','Groups']].map(([k,l])=>(
-            <button key={k} onClick={()=>setTab(k)} style={{flex:1,padding:'10px 0',background:'none',border:'none',color:tab===k?'#25D366':'#8696A0',fontSize:14,fontWeight:tab===k?700:400,cursor:'pointer',borderBottom:tab===k?'2px solid #25D366':'2px solid transparent',marginBottom:-1}}>{l}</button>
-          ))}
-        </div>
-      </div>
-
-      {/* Search bar */}
-      <div style={{padding:'10px 14px',flexShrink:0}}>
-        <div style={{background:'#2A3942',borderRadius:10,padding:'8px 12px',display:'flex',alignItems:'center',gap:8}}>
-          <span style={{color:'#8696A0',fontSize:16}}>🔍</span>
-          <span style={{fontSize:14,color:'#8696A0'}}>Search...</span>
-        </div>
-      </div>
-
-      {/* List */}
-      <div style={{flex:1,overflowY:'auto',WebkitOverflowScrolling:'touch'}}>
-        {tab==='direct'&&(
-          loadingConvs?<div style={{display:'flex',justifyContent:'center',padding:40}}><div className="spinner spinner-dark"/></div>
-          :convs.length===0?<div style={{padding:'60px 20px',textAlign:'center',color:'#8696A0'}}>
-            <div style={{fontSize:48,marginBottom:12}}>💬</div>
-            <div style={{fontSize:16,fontWeight:600,color:'#E9EDEF',marginBottom:4}}>No conversations yet</div>
-            <div style={{fontSize:13}}>Parents will appear here when they message</div>
-          </div>
-          :convs.map(conv=>{
-            const pid=conv.parent?._id||conv._id;
-            const online=isOnline(pid);
-            const isTyp=typingParents[pid];
-            const lastTime=conv.lastTime?new Date(conv.lastTime).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'';
-            return (
-              <div key={pid} onClick={()=>openChat(conv.parent)} style={{padding:'13px 16px',cursor:'pointer',borderBottom:'1px solid rgba(255,255,255,0.04)',display:'flex',alignItems:'center',gap:13,active:'background:#1F2C34'}}>
-                <Avatar name={conv.parent?.name} src={conv.parent?.profilePic} size={50} online={online}/>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
-                    <span style={{fontWeight:600,fontSize:15,color:'#E9EDEF',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>{conv.parent?.name||'Unknown'}</span>
-                    <span style={{fontSize:11,color:conv.unreadCount>0?'#25D366':'#8696A0',flexShrink:0,marginLeft:8}}>{lastTime}</span>
-                  </div>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                    <span style={{fontSize:13,color:isTyp?'#25D366':'#8696A0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>
-                      {isTyp?'✍ typing...':(conv.lastMessage?.substring(0,35)||'')}
-                    </span>
-                    {conv.unreadCount>0&&<span style={{background:'#25D366',color:'#111',borderRadius:999,fontSize:11,fontWeight:700,padding:'2px 7px',marginLeft:8,flexShrink:0,minWidth:20,textAlign:'center'}}>{conv.unreadCount}</span>}
-                  </div>
-                </div>
-              </div>
-            );
-          })
-        )}
-        {tab==='groups'&&(
-          groups.length===0?<div style={{padding:'60px 20px',textAlign:'center',color:'#8696A0'}}>
-            <div style={{fontSize:48,marginBottom:12}}>👥</div>
-            <div style={{fontSize:16,fontWeight:600,color:'#E9EDEF',marginBottom:4}}>No groups yet</div>
-            <button onClick={()=>setShowCreateGroup(true)} style={{marginTop:16,padding:'11px 28px',background:'linear-gradient(135deg,#00A884,#128C7E)',border:'none',borderRadius:12,color:'#fff',cursor:'pointer',fontWeight:600}}>Create First Group</button>
-          </div>
-          :groups.map(group=>(
-            <div key={group._id} onClick={()=>openGroup(group)} style={{padding:'13px 16px',cursor:'pointer',borderBottom:'1px solid rgba(255,255,255,0.04)',display:'flex',alignItems:'center',gap:13}}>
-              <div style={{width:50,height:50,borderRadius:'50%',background:'linear-gradient(135deg,#9B1826,#6B0F1A)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{group.icon||'👥'}</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
-                  <span style={{fontWeight:600,fontSize:15,color:'#E9EDEF',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{group.name}</span>
-                  {group.lastMessageTime&&<span style={{fontSize:11,color:'#8696A0',flexShrink:0,marginLeft:8}}>{new Date(group.lastMessageTime).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span>}
-                </div>
-                <div style={{fontSize:13,color:'#8696A0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{group.lastMessage||`${group.members?.length||0} members`}</div>
-              </div>
+      {menu && (
+        <div style={S.menuOverlay} onClick={() => setMenu(null)}>
+          <div style={S.menuBox} onClick={e => e.stopPropagation()}>
+            <div style={{ padding:'8px 12px', display:'flex', gap:4, borderBottom:'0.5px solid rgba(255,255,255,0.08)' }}>
+              {['❤️','👍','😂','😮','😢','🙏'].map(e => (<button key={e} onClick={() => onReact(menu.msg._id, e)} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', padding:'2px 4px' }}>{e}</button>))}
             </div>
-          ))
-        )}
+            {menu.msg.mediaData && !menu.msg.deletedForEveryone && <button onClick={() => { const a = document.createElement('a'); a.href = menu.msg.mediaData; a.download='media'; a.click(); setMenu(null); }} style={S.menuBtn}>⬇ Download</button>}
+            <button onClick={() => onDelete(menu.msg._id, false)} style={{ ...S.menuBtn, color:'#FC8181' }}>🗑 Delete for me</button>
+            {menu.msg.senderRole === 'admin' && !menu.msg.deletedForEveryone && <button onClick={() => onDelete(menu.msg._id, true)} style={{ ...S.menuBtn, color:'#FC8181' }}>🗑 Delete for everyone</button>}
+            <button onClick={() => setMenu(null)} style={{ ...S.menuBtn, color:'#8696A0' }}>✕ Cancel</button>
+          </div>
+        </div>)}
+
+      {showCreate && (
+        <div style={S.overlay} onClick={() => setShowCreate(false)}>
+          <div style={S.sheet} onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight:700, fontSize:16, marginBottom:14, color:'#E9EDEF' }}>📸 New Story</div>
+            <input ref={storyFileRef} type="file" accept="image/*,video/*" style={{ display:'none' }}
+              onChange={e => { const f = e.target.files[0]; if (!f) return; setStoryMedia(f); const r = new FileReader(); r.onload = ev => setStoryPreview(ev.target.result); r.readAsDataURL(f); }} />
+            {storyPreview
+              ? <div style={{ position:'relative', marginBottom:12 }}>
+                  {storyMedia?.type.startsWith('video/') ? <video src={storyPreview} style={{ width:'100%', borderRadius:12, maxHeight:220, objectFit:'cover' }} muted /> : <img src={storyPreview} style={{ width:'100%', borderRadius:12, maxHeight:220, objectFit:'cover' }} alt="" />}
+                  <button onClick={() => { setStoryMedia(null); setStoryPreview(null); }} style={{ position:'absolute', top:8, right:8, background:'rgba(239,68,68,0.8)', border:'none', color:'#fff', borderRadius:'50%', width:28, height:28, cursor:'pointer', fontSize:14 }}>✕</button>
+                </div>
+              : <button onClick={() => storyFileRef.current?.click()} style={{ width:'100%', padding:'20px', background:'#2A3942', border:'2px dashed rgba(255,255,255,0.15)', borderRadius:12, color:'#8696A0', cursor:'pointer', marginBottom:12, fontSize:14 }}>📎 Tap to add photo or video</button>}
+            <textarea value={storyText} onChange={e => setStoryText(e.target.value)} placeholder="Add a caption..." rows={2}
+              style={{ width:'100%', background:'#2A3942', border:'1px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'10px 12px', color:'#E9EDEF', fontSize:14, resize:'none', outline:'none', marginBottom:12, boxSizing:'border-box' }} />
+            <div style={{ display:'flex', gap:8 }}>
+              <button onClick={() => setShowCreate(false)} style={{ flex:1, padding:'12px', background:'#2A3942', border:'none', borderRadius:10, color:'#8696A0', cursor:'pointer' }}>Cancel</button>
+              <button onClick={postStory} disabled={posting} style={{ flex:2, padding:'12px', background:'linear-gradient(135deg,#00A884,#128C7E)', border:'none', borderRadius:10, color:'#fff', cursor:'pointer', fontWeight:700 }}>{posting ? 'Posting...' : '📤 Post Story'}</button>
+            </div>
+          </div>
+        </div>)}
+
+      {/* Tab Bar */}
+      <div style={S.tabBar}>
+        <button style={S.tab(panel === 'list')} onClick={() => setPanel('list')}>
+          💬 Chats {totalUnread > 0 && <span style={S.badge}>{totalUnread}</span>}
+        </button>
+        <button style={S.tab(panel === 'stories')} onClick={() => setPanel('stories')}>🔵 Updates</button>
       </div>
+
+      {/* STORIES PANEL */}
+      {panel === 'stories' && (
+        <div style={{ flex:1, overflowY:'auto' }}>
+          <div style={{ padding:'12px 16px 6px', fontSize:12, color:'#8696A0', fontWeight:600, textTransform:'uppercase', letterSpacing:.5 }}>My Status</div>
+          <div style={{ display:'flex', alignItems:'center', gap:12, padding:'8px 16px 12px', borderBottom:'0.5px solid rgba(255,255,255,0.06)', cursor:'pointer' }}>
+            <div style={{ position:'relative', flexShrink:0 }}>
+              <div style={{ ...S.storyRing(false), width:52, height:52 }}>
+                <div style={{ ...S.storyInner }}>
+                  {user?.profilePic ? <img src={user.profilePic} style={{ width:'100%', height:'100%', objectFit:'cover' }} alt="" /> : user?.name?.[0]?.toUpperCase()}
+                </div>
+              </div>
+              <div style={S.addBadge} onClick={() => setShowCreate(true)}>+</div>
+            </div>
+            <div onClick={myStories.length ? () => setViewer({ stories: myStories, startIdx:0 }) : () => setShowCreate(true)}>
+              <div style={{ fontSize:14, fontWeight:600, color:'#E9EDEF' }}>My status</div>
+              <div style={{ fontSize:12, color:'#8696A0' }}>{myStories.length ? `${myStories.length} update${myStories.length > 1 ? 's' : ''}` : 'Tap to add status update'}</div>
+            </div>
+          </div>
+          {storyGroups.length > 0 && <>
+            <div style={{ padding:'12px 16px 6px', fontSize:12, color:'#8696A0', fontWeight:600, textTransform:'uppercase', letterSpacing:.5 }}>Recent Updates</div>
+            {storyGroups.map(g => (
+              <div key={g.author?._id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px', cursor:'pointer', borderBottom:'0.5px solid rgba(255,255,255,0.04)' }} onClick={() => setViewer({ stories: g.items, startIdx:0 })}>
+                <div style={{ ...S.storyRing(true), width:52, height:52, flexShrink:0 }}>
+                  <div style={S.storyInner}>{g.author?.profilePic ? <img src={g.author.profilePic} style={{ width:'100%', height:'100%', objectFit:'cover' }} alt="" /> : g.author?.name?.[0]?.toUpperCase()}</div>
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:14, fontWeight:600, color:'#E9EDEF' }}>{g.author?.name}</div>
+                  <div style={{ fontSize:12, color:'#8696A0' }}>{timeLeft(g.items[g.items.length-1]?.expiresAt)}</div>
+                </div>
+                <div style={{ fontSize:11, color:'#8696A0' }}>{g.items.length} update{g.items.length > 1 ? 's' : ''}</div>
+              </div>))}
+          </>}
+          {storyGroups.length === 0 && myStories.length === 0 && (
+            <div style={{ textAlign:'center', padding:'60px 20px', color:'#8696A0' }}>
+              <div style={{ fontSize:48, marginBottom:12 }}>📷</div>
+              <div style={{ fontSize:16, fontWeight:600 }}>No updates yet</div>
+            </div>)}
+        </div>)}
+
+      {/* CHAT LIST PANEL */}
+      {panel === 'list' && !selected && (
+        <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+          <div style={{ padding:'8px 12px', flexShrink:0 }}>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Search parents..."
+              style={{ width:'100%', padding:'9px 14px', background:'#2A3942', border:'none', borderRadius:20, color:'#E9EDEF', fontSize:14, outline:'none', boxSizing:'border-box' }} />
+          </div>
+          <div style={{ flex:1, overflowY:'auto' }}>
+            {filteredParents.length === 0 && <div style={{ textAlign:'center', padding:'60px 20px', color:'#8696A0' }}><div style={{ fontSize:40, marginBottom:10 }}>👥</div>No parents found</div>}
+            {filteredParents.map(p => {
+              const u = unread[p._id] || 0;
+              const isTyping = parentTyping[p._id];
+              return (
+                <div key={p._id} style={S.listItem(false)} onClick={() => { setSelected(p); setPanel('chat'); }}>
+                  <div style={S.avatar()}>
+                    {p.profilePic ? <img src={p.profilePic} style={{ width:'100%', height:'100%', objectFit:'cover' }} alt="" /> : p.name?.[0]?.toUpperCase()}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <div style={{ fontSize:15, fontWeight:600, color:'#E9EDEF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.name}</div>
+                      {u > 0 && <div style={{ background:'#25D366', color:'#fff', borderRadius:10, padding:'2px 7px', fontSize:11, fontWeight:700, flexShrink:0 }}>{u}</div>}
+                    </div>
+                    <div style={{ fontSize:13, color: isTyping ? '#25D366' : '#8696A0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                      {isTyping ? 'typing...' : p.email}
+                    </div>
+                  </div>
+                </div>);
+            })}
+          </div>
+        </div>)}
+
+      {/* CHAT PANEL */}
+      {panel === 'chat' && selected && (
+        <>
+          {/* Header */}
+          <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px', background:'#1F2C34', flexShrink:0, borderBottom:'0.5px solid rgba(255,255,255,0.06)' }}>
+            <button onClick={() => { setSelected(null); setPanel('list'); setMessages([]); }} style={{ background:'none', border:'none', color:'#8696A0', fontSize:20, cursor:'pointer', padding:4 }}>←</button>
+            <div style={{ ...S.avatar(), width:38, height:38, fontSize:14 }}>
+              {selected.profilePic ? <img src={selected.profilePic} style={{ width:'100%', height:'100%', objectFit:'cover' }} alt="" /> : selected.name?.[0]?.toUpperCase()}
+            </div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:15, fontWeight:600 }}>{selected.name}</div>
+              {parentTyping[selected._id]
+                ? <div style={{ fontSize:12, color:'#25D366' }}>typing...</div>
+                : <div style={{ fontSize:12, color:'#8696A0' }}>Parent</div>}
+            </div>
+          </div>
+
+          {/* Messages */}
+          <div style={{ flex:1, overflowY:'auto', padding:'8px 0 4px' }}>
+            {messages.length === 0 && <div style={{ textAlign:'center', padding:'60px 20px', color:'#8696A0' }}><div style={{ fontSize:48, marginBottom:12 }}>💬</div><div style={{ fontSize:15, fontWeight:600 }}>No messages yet</div></div>}
+            {grouped.map((group, gi) => (
+              <div key={gi}>
+                <div style={{ textAlign:'center', margin:'10px 0', fontSize:11, color:'#8696A0' }}>
+                  <span style={{ background:'#1F2C34', padding:'4px 12px', borderRadius:8, border:'1px solid rgba(255,255,255,0.08)' }}>{group.date}</span>
+                </div>
+                {group.msgs.map(msg => {
+                  const isMe = msg.senderRole === 'admin';
+                  return <Bubble key={msg._id} msg={msg} isMe={isMe} onLongPress={m => setMenu({ msg: m })} />;
+                })}
+              </div>))}
+            <div ref={bottomRef} />
+          </div>
+
+          {/* Input */}
+          <div style={S.inputBar}>
+            <input ref={fileRef} type="file" accept="image/*,video/*" style={{ display:'none' }}
+              onChange={e => { sendMedia(e.target.files[0]); e.target.value=''; }} />
+            <button style={S.iconBtn} onClick={() => fileRef.current?.click()}>📎</button>
+            <textarea value={input} onChange={e => handleTyping(e.target.value)}
+              onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendText(); } }}
+              placeholder="Message" rows={1} style={S.textarea} />
+            {input.trim()
+              ? <button style={S.sendBtn} onClick={sendText}>➤</button>
+              : <button style={{ ...S.sendBtn, background: recording ? '#EF4444' : 'linear-gradient(135deg,#00A884,#128C7E)' }}
+                  onMouseDown={startRec} onMouseUp={stopRec}
+                  onTouchStart={e => { e.preventDefault(); startRec(); }} onTouchEnd={stopRec}>
+                  {recording ? '⏹' : '🎤'}
+                </button>}
+          </div>
+        </>)}
+
+      <style>{`*::-webkit-scrollbar{width:0;height:0} textarea{font-family:inherit}`}</style>
     </div>
   );
 }
-
-const sendBtn = {width:46,height:46,borderRadius:'50%',flexShrink:0,background:'linear-gradient(135deg,#00A884,#128C7E)',border:'none',color:'#fff',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'};
