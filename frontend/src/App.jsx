@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { useStore } from './store/useStore';
 import { initPushNotifications, subscribeToPush } from './utils/push';
 import './styles/globals.css';
+
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 import AppLayout from './components/layout/AppLayout';
@@ -38,6 +39,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   if (allowedRoles && !allowedRoles.includes(user?.role)) return <Navigate to="/" replace />;
   return children;
 };
+
 const RoleRedirect = () => {
   const { user } = useStore();
   if (user?.role === 'admin') return <Navigate to="/admin" replace />;
@@ -46,8 +48,8 @@ const RoleRedirect = () => {
 };
 
 export default function App() {
-  const { user, setUser } = useStore();
-  // Refresh profile from DB on every app load (fixes profilePic disappearing)
+  const { user, setUser, fetchMe, isAuthenticated } = useStore();
+
   useEffect(() => {
     if (user) {
       import('./utils/api').then(({ default: api }) => {
@@ -59,22 +61,24 @@ export default function App() {
       });
     }
   }, [user?._id]);
-  const { fetchMe, isAuthenticated, user } = useStore();
+
   useEffect(() => { fetchMe(); initPushNotifications(); }, []);
+
   useEffect(() => {
     if (isAuthenticated && user) {
-      const t = setTimeout(() => subscribeToPush().catch(()=>{}), 3000);
+      const t = setTimeout(() => subscribeToPush().catch(() => {}), 3000);
       return () => clearTimeout(t);
     }
   }, [isAuthenticated, user]);
 
   return (
     <BrowserRouter>
-      <Toaster position="top-right" toastOptions={{ duration:4000, style:{ background:'#1C1C1C', color:'#fff', borderRadius:'10px', fontFamily:'DM Sans, sans-serif', fontSize:'14px' }, success:{ iconTheme:{ primary:'#1A7A4A', secondary:'#fff' } }, error:{ iconTheme:{ primary:'#C0392B', secondary:'#fff' } } }} />
+      <Toaster position="top-right" toastOptions={{ duration: 4000, style: { background: '#1C1C1C', color: '#fff', borderRadius: '10px', fontFamily: 'DM Sans, sans-serif', fontSize: '14px' }, success: { iconTheme: { primary: '#1A7A4A', secondary: '#fff' } }, error: { iconTheme: { primary: '#C0392B', secondary: '#fff' } } }} />
       <Routes>
         <Route path="/login" element={isAuthenticated ? <RoleRedirect /> : <LoginPage />} />
         <Route path="/register" element={isAuthenticated ? <RoleRedirect /> : <RegisterPage />} />
         <Route path="/" element={isAuthenticated ? <RoleRedirect /> : <Navigate to="/login" />} />
+
         <Route path="/parent" element={<ProtectedRoute allowedRoles={['parent']}><AppLayout /></ProtectedRoute>}>
           <Route index element={<ParentDashboard />} />
           <Route path="children" element={<ParentChildren />} />
@@ -85,8 +89,8 @@ export default function App() {
           <Route path="chat" element={<ParentChat />} />
           <Route path="stories" element={<ParentStories />} />
           <Route path="profile" element={<ProfileSettings />} />
-          <Route path="profile" element={<ParentProfile />} />
         </Route>
+
         <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AppLayout /></ProtectedRoute>}>
           <Route index element={<AdminDashboard />} />
           <Route path="children" element={<AdminChildren />} />
@@ -99,15 +103,15 @@ export default function App() {
           <Route path="settings" element={<AdminSettings />} />
           <Route path="stories" element={<AdminStoriesPage />} />
           <Route path="profile" element={<ProfileSettings />} />
-          <Route path="stories" element={<AdminStoriesPage />} />
-          <Route path="profile" element={<ProfileSettings />} />
           <Route path="calendar" element={<AdminCalendar />} />
         </Route>
+
         <Route path="/developer" element={<ProtectedRoute allowedRoles={['developer']}><AppLayout /></ProtectedRoute>}>
           <Route index element={<DeveloperDashboard />} />
           <Route path="earnings" element={<DeveloperEarnings />} />
           <Route path="withdrawals" element={<DeveloperWithdrawals />} />
         </Route>
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
