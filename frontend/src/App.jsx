@@ -46,6 +46,19 @@ const RoleRedirect = () => {
 };
 
 export default function App() {
+  const { user, setUser } = useStore();
+  // Refresh profile from DB on every app load (fixes profilePic disappearing)
+  useEffect(() => {
+    if (user) {
+      import('./utils/api').then(({ default: api }) => {
+        api.get('/profile/me').then(r => {
+          if (r.data.user && r.data.user.profilePic) {
+            setUser({ ...user, ...r.data.user });
+          }
+        }).catch(() => {});
+      });
+    }
+  }, [user?._id]);
   const { fetchMe, isAuthenticated, user } = useStore();
   useEffect(() => { fetchMe(); initPushNotifications(); }, []);
   useEffect(() => {
