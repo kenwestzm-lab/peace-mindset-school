@@ -10,7 +10,7 @@ const resultSchema = new mongoose.Schema({
   fileUrl: { type: String, required: true },
   filePublicId: { type: String },
   isLocked: { type: Boolean, default: true },
-  subjects: [{ name: String, score: Number, grade: String, remarks: String }],
+  subjects: [{ type: String, trim: true }],
 }, { timestamps: true });
 
 // ─── Announcement ─────────────────────────────────────────────────────────────
