@@ -6,7 +6,7 @@ import { uploadBase64 } from '../utils/mediaUpload';
 import toast from 'react-hot-toast';
 
 export default function ProfileSettings() {
-  const { user, logout } = useStore();
+  const { user, logout, updateUser } = useStore();
   const [form, setForm] = useState({ name:'', email:'', phone:'', currentPassword:'', newPassword:'', confirmPassword:'' });
   const [children, setChildren] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -51,6 +51,7 @@ export default function ProfileSettings() {
       const result = await uploadBase64(data, 'image/jpeg', 'peace-mindset/profiles');
       await api.put('/profile/picture', { profilePic: result.url });
       setProfilePic(result.url);
+      updateUser({ profilePic: result.url });
       toast.success(`✅ Profile photo updated!`);
     } catch(err) { toast.error(err.response?.data?.error||'Upload failed'); }
     finally { setPicLoading(false); e.target.value=''; }

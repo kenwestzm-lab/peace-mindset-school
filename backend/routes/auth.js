@@ -52,6 +52,7 @@ router.post(
         role: user.role,
         language: user.language,
         phone: user.phone,
+profilePic: user.profilePic,
       },
     });
   }
@@ -100,6 +101,7 @@ router.post(
         role: user.role,
         language: user.language,
         phone: user.phone,
+profilePic: user.profilePic,
       },
     });
   }
@@ -107,7 +109,8 @@ router.post(
 
 // ─── GET /api/auth/me ─────────────────────────────────────────────────────────
 router.get("/me", protect, async (req, res) => {
-  res.json({ user: req.user });
+  const fresh = await User.findById(req.user._id).select("-password").lean();
+  res.json({ user: fresh });
 });
 
 // ─── PUT /api/auth/language ───────────────────────────────────────────────────
