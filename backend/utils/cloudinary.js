@@ -1,40 +1,157 @@
-const cloudinary = require("cloudinary");
+// ═══════════════════════════════════════════════════════════════════
+// Cloudinary Upload Utility
+// Free tier: 25GB storage, 25GB bandwidth/month
+// Sign up free at cloudinary.com
+// ═══════════════════════════════════════════════════════════════════
+const https = require("https");
+const http = require("http");
+const { URL } = require("url");
 
-// 4 separate Cloudinary instances
-const cloud1 = cloudinary.v2; // profiles & images
-const cloud2 = new (require("cloudinary").v2.constructor)(); // audio & voice  
-const cloud3 = new (require("cloudinary").v2.constructor)(); // videos
-const cloud4 = new (require("cloudinary").v2.constructor)(); // results & stories
+// Upload base64 data to Cloudinary
+// Returns { url, publicId, resourceType, format, bytes }
+const uploadToCloudinary = async (base64Data, options = {}) => {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
-cloud1.config({ cloud_name: process.env.CLOUD_NAME_1, api_key: process.env.API_KEY_1, api_secret: process.env.API_SECRET_1 });
-cloud2.config({ cloud_name: process.env.CLOUD_NAME_2, api_key: process.env.API_KEY_2, api_secret: process.env.API_SECRET_2 });
-cloud3.config({ cloud_name: process.env.CLOUD_NAME_3, api_key: process.env.API_KEY_3, api_secret: process.env.API_SECRET_3 });
-cloud4.config({ cloud_name: process.env.CLOUD_NAME_4, api_key: process.env.API_KEY_4, api_secret: process.env.API_SECRET_4 });
-
-const smartUpload = async (base64Data, { mimeType, folder }) => {
-  // Pick the right account based on file type
-  let instance;
-  if (mimeType?.startsWith("audio/") || folder?.includes("voice")) {
-    instance = cloud2; // audio account
-  } else if (mimeType?.startsWith("video/")) {
-    instance = cloud3; // video account
-  } else if (folder?.includes("result") || folder?.includes("stor")) {
-    instance = cloud4; // results & stories account
-  } else {
-    instance = cloud1; // default: images & profiles
+  if (!cloudName || !apiKey || !apiSecret) {
+    throw new Error("Cloudinary not configured. Add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET to .env");
   }
 
-  const resourceType =
-    mimeType?.startsWith("video/") ? "video" :
-    mimeType?.startsWith("audio/") ? "video" : // cloudinary uses "video" for audio too
-    "image";
+  // Determine resource type from data URL or mime type
+  const mime = options.mimeType || "";
+  let resourceType = "auto";
+  if (mime.startsWith("video/") || mime.startsWith("audio/")) resourceType = "video";
+  else if (mime.startsWith("image/")) resourceType = "image";
 
-  const result = await instance.uploader.upload(base64Data, {
-    folder: folder || "peace-mindset/general",
-    resource_type: resourceType,
+  // Build upload URL
+  const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
+
+  // Build form data (Cloudinary accepts base64 as data URI)
+  const dataUri = base64Data.startsWith("data:") ? base64Data : `data:${mime};base64,${base64Data}`;
+  const folder = options.folder || "peace-mindset";
+  const timestamp = Math.round(Date.now() / 1000);
+
+  // Create signature
+  const crypto = require("crypto");
+  const paramsToSign = `folder=${folder}&timestamp=${timestamp}`;
+  const signature = crypto.createHash("sha1").update(paramsToSign + apiSecret).digest("hex");
+
+  // Build multipart form body
+  const boundary = `----CloudinaryBoundary${Date.now()}`;
+  const fields = {
+    file: dataUri,
+    api_key: apiKey,
+    timestamp: timestamp.toString(),
+    signature,
+    folder,
+  };
+  if (options.publicId) fields.public_id = options.publicId;
+  if (options.transformation) fields.transformation = options.transformation;
+
+  let body = "";
+  for (const [key, value] of Object.entries(fields)) {
+    body += `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`;
+  }
+  body += `--${boundary}--\r\n`;
+
+  return new Promise((resolve, reject) => {
+    const urlParsed = new URL(uploadUrl);
+    const bodyBuffer = Buffer.from(body, "utf8");
+
+    const req = https.request({
+      hostname: urlParsed.hostname,
+      path: urlParsed.pathname,
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Content-Length": bodyBuffer.length,
+      },
+    }, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try {
+          const result = JSON.parse(data);
+          if (result.error) {
+            reject(new Error(result.error.message || "Cloudinary upload failed"));
+          } else {
+            resolve({
+              url: result.secure_url,
+              publicId: result.public_id,
+              resourceType: result.resource_type,
+              format: result.format,
+              bytes: result.bytes,
+              width: result.width,
+              height: result.height,
+              duration: result.duration,
+            });
+          }
+        } catch (e) {
+          reject(new Error("Invalid Cloudinary response: " + data.substring(0, 200)));
+        }
+      });
+    });
+
+    req.on("error", reject);
+    req.setTimeout(120000, () => { req.destroy(); reject(new Error("Cloudinary upload timeout")); });
+    req.write(bodyBuffer);
+    req.end();
   });
-
-  return { url: result.secure_url, publicId: result.public_id };
 };
 
-module.exports = { smartUpload };
+// Delete from Cloudinary
+const deleteFromCloudinary = async (publicId, resourceType = "image") => {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  if (!cloudName || !apiKey || !apiSecret) return;
+
+  const crypto = require("crypto");
+  const timestamp = Math.round(Date.now() / 1000);
+  const paramsToSign = `public_id=${publicId}&timestamp=${timestamp}`;
+  const signature = crypto.createHash("sha1").update(paramsToSign + apiSecret).digest("hex");
+
+  const boundary = `----DeleteBoundary${Date.now()}`;
+  let body = `--${boundary}\r\nContent-Disposition: form-data; name="public_id"\r\n\r\n${publicId}\r\n`;
+  body += `--${boundary}\r\nContent-Disposition: form-data; name="api_key"\r\n\r\n${apiKey}\r\n`;
+  body += `--${boundary}\r\nContent-Disposition: form-data; name="timestamp"\r\n\r\n${timestamp}\r\n`;
+  body += `--${boundary}\r\nContent-Disposition: form-data; name="signature"\r\n\r\n${signature}\r\n`;
+  body += `--${boundary}--\r\n`;
+
+  return new Promise((resolve) => {
+    const bodyBuffer = Buffer.from(body);
+    const req = https.request({
+      hostname: "api.cloudinary.com",
+      path: `/v1_1/${cloudName}/${resourceType}/destroy`,
+      method: "POST",
+      headers: { "Content-Type": `multipart/form-data; boundary=${boundary}`, "Content-Length": bodyBuffer.length },
+    }, (res) => {
+      let data = "";
+      res.on("data", c => data += c);
+      res.on("end", () => resolve(JSON.parse(data || "{}")));
+    });
+    req.on("error", () => resolve({}));
+    req.write(bodyBuffer);
+    req.end();
+  });
+};
+
+// Smart upload: if Cloudinary configured, upload there. Otherwise store as base64 (small files only).
+const smartUpload = async (base64Data, options = {}) => {
+  const hasCloudinary = process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY;
+
+  if (hasCloudinary) {
+    const result = await uploadToCloudinary(base64Data, options);
+    return { url: result.url, publicId: result.publicId, isCloudinary: true, bytes: result.bytes };
+  }
+
+  // Fallback: store base64 directly (only safe for small files < 8MB)
+  const sizeBytes = (base64Data.length * 3) / 4;
+  if (sizeBytes > 8 * 1024 * 1024) {
+    throw new Error("File too large for direct storage. Please configure Cloudinary in .env for large file support.");
+  }
+  return { url: base64Data, publicId: null, isCloudinary: false, bytes: sizeBytes };
+};
+
+module.exports = { uploadToCloudinary, deleteFromCloudinary, smartUpload };
