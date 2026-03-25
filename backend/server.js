@@ -152,21 +152,40 @@ io.on("connection", (socket) => {
   socket.on("send_group_message", async (data) => {
     try {
       const { GroupMessage, Group } = require("./models/index");
+
+      let mediaData = data.mediaUrl || data.mediaData || null;
+
+      if (mediaData && mediaData.startsWith("data:") &&
+        data.messageType !== "text" && data.messageType !== "voice") {
+        try {
+          const { smartUpload } = require("./utils/cloudinary");
+          const folder = data.messageType === "video"
+            ? "peace-mindset/group-videos"
+            : "peace-mindset/group-images";
+          const uploaded = await smartUpload(mediaData, {
+            mimeType: data.mediaMimeType, folder
+          });
+          mediaData = uploaded.url;
+        } catch (e) { console.error("Group Cloudinary upload:", e.message); }
+      }
+
       const msg = await GroupMessage.create({
         group: data.groupId, sender: data.senderId,
         content: data.content, messageType: data.messageType || "text",
-        mediaData: data.mediaUrl || data.mediaData || null,
-        mediaMimeType: data.mediaMimeType || null, duration: data.duration || null,
+        mediaData: mediaData,
+        mediaMimeType: data.mediaMimeType || null,
+        duration: data.duration || null,
       });
       await Group.findByIdAndUpdate(data.groupId, {
-        lastMessage: data.messageType !== "text" ? `📎 ${data.messageType}` : (data.content||"").substring(0,60),
+        lastMessage: data.messageType !== "text"
+          ? `📎 ${data.messageType}`
+          : (data.content||"").substring(0,60),
         lastMessageTime: new Date(),
       });
       const populated = await msg.populate("sender", "name role profilePic");
       io.to(`group:${data.groupId}`).emit("new_group_message", populated);
     } catch (err) { console.error("Group msg error:", err); }
-  });
-
+});
   socket.on("typing", ({ parentId, isTyping, senderRole }) => {
     if (senderRole === "admin") io.to(`user:${parentId}`).emit("admin_typing", { isTyping });
     else io.to("admin_room").emit("user_typing", { parentId, isTyping });

@@ -32,6 +32,12 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+
+profilePic: {
+      type: String,
+      default: "",
+    },
+
     language: {
       type: String,
       enum: ["en", "fr"],

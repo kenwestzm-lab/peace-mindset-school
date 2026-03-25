@@ -25,7 +25,7 @@ router.put("/picture", protect, async (req, res) => {
     );
     const updated = await User.findByIdAndUpdate(req.user._id, { $set: { profilePic: url } }, { new: true });
     console.log("profilePic saved:", updated?.profilePic);
-    res.json({ success: true, profilePic: url });
+    res.json({ success: true, profilePic: url, v: "fix2" });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
