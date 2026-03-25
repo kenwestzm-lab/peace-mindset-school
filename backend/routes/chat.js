@@ -4,28 +4,36 @@ const { Message } = require("../models/index");
 const { protect, authorize } = require("../middleware/auth");
 const { smartUpload, deleteFromCloudinary } = require("../utils/cloudinary");
 
-// ── GET /api/chat/:parentId ────────────────────────────────────────────
-router.get("/:parentId", protect, async (req, res) => {
+// ── GET /api/chat/messages (parent fetches their own messages) ─────────
+// MUST be before /:parentId to avoid conflict
+router.get("/messages", protect, async (req, res) => {
   try {
-    const { parentId } = req.params;
-    if (req.user.role === "parent" && req.user._id.toString() !== parentId) {
-      return res.status(403).json({ error: "Access denied." });
-    }
     const messages = await Message.find({
-      parentId,
+      parentId: req.user._id,
       deletedForEveryone: false,
       deletedFor: { $ne: req.user._id },
     })
       .populate("sender", "name role profilePic")
       .sort({ createdAt: 1 })
       .limit(200)
-      .lean(); // lean() for speed
+      .lean();
 
     await Message.updateMany(
-      { parentId, sender: { $ne: req.user._id }, isRead: false },
+      { parentId: req.user._id, sender: { $ne: req.user._id }, isRead: false },
       { isRead: true }
     );
     res.json({ messages });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/chat/message/:id (single message for reaction refresh) ────
+router.get("/message/:id", protect, async (req, res) => {
+  try {
+    const message = await Message.findById(req.params.id)
+      .populate("sender", "name role profilePic")
+      .lean();
+    if (!message) return res.status(404).json({ error: "Not found" });
+    res.json({ message });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -55,11 +63,44 @@ router.get("/admin/conversations", protect, authorize("admin"), async (req, res)
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── PUT /api/chat/:id/read ─────────────────────────────────────────────
+router.put("/:id/read", protect, async (req, res) => {
+  try {
+    await Message.findByIdAndUpdate(req.params.id, { isRead: true });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/chat/:parentId ────────────────────────────────────────────
+router.get("/:parentId", protect, async (req, res) => {
+  try {
+    const { parentId } = req.params;
+    if (req.user.role === "parent" && req.user._id.toString() !== parentId) {
+      return res.status(403).json({ error: "Access denied." });
+    }
+    const messages = await Message.find({
+      parentId,
+      deletedForEveryone: false,
+      deletedFor: { $ne: req.user._id },
+    })
+      .populate("sender", "name role profilePic")
+      .sort({ createdAt: 1 })
+      .limit(200)
+      .lean();
+
+    await Message.updateMany(
+      { parentId, sender: { $ne: req.user._id }, isRead: false },
+      { isRead: true }
+    );
+    res.json({ messages });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── POST /api/chat - HTTP fallback (socket preferred) ─────────────────
 router.post("/", protect, async (req, res) => {
   try {
     const { content, parentId, messageType, mediaData, mediaMimeType, duration } = req.body;
-    if (!content || !parentId) return res.status(400).json({ error: "Required fields missing." });
+    if (!parentId) return res.status(400).json({ error: "parentId required." });
     if (req.user.role === "parent" && req.user._id.toString() !== parentId) {
       return res.status(403).json({ error: "Access denied." });
     }
@@ -67,7 +108,6 @@ router.post("/", protect, async (req, res) => {
     let finalMediaUrl = null;
     let mediaPublicId = null;
 
-    // Upload media to Cloudinary if present
     if (mediaData && messageType !== "text" && messageType !== "voice") {
       try {
         const uploaded = await smartUpload(mediaData, {
@@ -78,11 +118,9 @@ router.post("/", protect, async (req, res) => {
         mediaPublicId = uploaded.publicId;
       } catch (uploadErr) {
         console.error("Media upload error:", uploadErr.message);
-        // Fall back to base64 for small files
         finalMediaUrl = mediaData;
       }
     } else if (mediaData) {
-      // Voice messages stored as base64 (small size)
       finalMediaUrl = mediaData;
     }
 
@@ -90,7 +128,7 @@ router.post("/", protect, async (req, res) => {
       sender: req.user._id,
       senderRole: req.user.role === "admin" ? "admin" : "parent",
       parentId,
-      content,
+      content: content || "",
       messageType: messageType || "text",
       mediaData: finalMediaUrl,
       mediaPublicId,
@@ -103,7 +141,6 @@ router.post("/", protect, async (req, res) => {
     io.to("admin_room").emit("new_message", populated);
     io.to(`user:${parentId}`).emit("new_message", populated);
 
-    // Push notification to admin when parent sends
     try {
       const { sendPushToUser } = require("./push");
       if (req.user.role === "parent") {
@@ -112,14 +149,14 @@ router.post("/", protect, async (req, res) => {
         for (const a of admins) {
           await sendPushToUser(a._id.toString(), {
             title: `💬 ${req.user.name}`,
-            body: messageType !== "text" ? `📎 ${messageType}` : content.substring(0, 60),
+            body: messageType !== "text" ? `📎 ${messageType}` : (content || "").substring(0, 60),
             icon: "/logo.webp", url: "/admin/chat",
           });
         }
       } else {
         await sendPushToUser(parentId, {
           title: "Peace Mindset School",
-          body: messageType !== "text" ? "📎 Media received" : content.substring(0, 60),
+          body: messageType !== "text" ? "📎 Media received" : (content || "").substring(0, 60),
           icon: "/logo.webp", url: "/parent/chat",
         });
       }
@@ -132,19 +169,17 @@ router.post("/", protect, async (req, res) => {
 // ── DELETE /api/chat/:id ───────────────────────────────────────────────
 router.delete("/:id", protect, async (req, res) => {
   try {
-    const { deleteForEveryone } = req.body;
+    const { forEveryone } = req.body;
     const msg = await Message.findById(req.params.id);
     if (!msg) return res.status(404).json({ error: "Message not found" });
 
-    // Check ownership: admin can delete any, parent only their own
     const isOwner = msg.sender.toString() === req.user._id.toString();
     const isAdmin = req.user.role === "admin";
 
-    if (deleteForEveryone) {
+    if (forEveryone) {
       if (!isOwner && !isAdmin) {
         return res.status(403).json({ error: "You can only delete your own messages for everyone" });
       }
-      // Delete media from Cloudinary
       if (msg.mediaPublicId) {
         const resourceType = msg.messageType === "video" ? "video" : "image";
         deleteFromCloudinary(msg.mediaPublicId, resourceType).catch(() => {});
@@ -159,12 +194,10 @@ router.delete("/:id", protect, async (req, res) => {
       io.to("admin_room").emit("message_deleted", { msgId: req.params.id, forEveryone: true });
       io.to(`user:${msg.parentId}`).emit("message_deleted", { msgId: req.params.id, forEveryone: true });
     } else {
-      // Delete for me only
       await Message.findByIdAndUpdate(req.params.id, {
         $addToSet: { deletedFor: req.user._id },
       });
     }
-
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
