@@ -23,7 +23,8 @@ router.put("/picture", protect, async (req, res) => {
       "peace-mindset/profiles",
       `user_${req.user._id}`
     );
-    await User.findByIdAndUpdate(req.user._id, { profilePic: url });
+    const updated = await User.findByIdAndUpdate(req.user._id, { $set: { profilePic: url } }, { new: true });
+    console.log("profilePic saved:", updated?.profilePic);
     res.json({ success: true, profilePic: url });
   } catch (err) {
     res.status(400).json({ error: err.message });
