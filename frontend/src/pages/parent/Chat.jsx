@@ -210,7 +210,7 @@ export default function ParentChat(){
     return()=>{socket.off('new_message',onMsg);socket.off('admin_typing',onTyping);socket.off('message_deleted',onDel);socket.off('message_reaction',onReact);socket.off('new_group_message',onGrpMsg);socket.off('new_story',loadStories);socket.off('stories_expired',loadStories);};
   },[view,selGroup,loadStories]);
 
-  useEffect(()=>{if(view==='chat'){setUnread(0);messages.forEach(m=>{if(!m.isRead&&m.senderRole!=='parent')api.put(`/chat/${m._id}/read`).catch(()=>{});});}};[view]);
+  useEffect(()=>{if(view==='chat'){setUnread(0);messages.forEach(m=>{if(!m.isRead&&m.senderRole!=='parent')api.put(`/chat/${m._id}/read`).catch(()=>{});}});}},[view]);
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:'smooth'});},[messages,groupMsgs]);
 
   // CRITICAL FIX: direct input handler — no socket calls blocking state update
