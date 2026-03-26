@@ -174,6 +174,7 @@ export default function ParentChat(){
   const [recObj,setRecObj]=useState(null);
   const [menu,setMenu]=useState(null);
   const [unread,setUnread]=useState(0);
+  const [adminOnline,setAdminOnline]=useState(false);
   const [lastMsg,setLastMsg]=useState(null);
   const [storyGroups,setStoryGroups]=useState([]);
   const [myStories,setMyStories]=useState([]);
@@ -197,6 +198,7 @@ export default function ParentChat(){
     try{const r=await api.get('/stories');const all=r.data.stories||[];const map={};all.forEach(s=>{const k=s.author?._id;if(!map[k])map[k]={author:s.author,items:[]};map[k].items.push(s);});setMyStories(map[user?._id]?.items||[]);setStoryGroups(Object.values(map).filter(g=>g.author?._id!==user?._id));}catch(e){console.error('stories',e);}
   },[user?._id]);
 
+  useEffect(()=>{const vv=window.visualViewport;if(!vv)return;const fn=()=>document.documentElement.style.setProperty('--vvh',vv.height+'px');vv.addEventListener('resize',fn);fn();return()=>vv.removeEventListener('resize',fn);},[]);
   useEffect(()=>{loadMessages();loadGroups();loadStories();},[]);
 
   useEffect(()=>{
@@ -206,8 +208,8 @@ export default function ParentChat(){
     const onDel=({msgId,forEveryone})=>{if(forEveryone)setMessages(p=>p.map(m=>m._id===msgId?{...m,deletedForEveryone:true}:m));};
     const onReact=({msgId})=>{api.get(`/chat/message/${msgId}`).then(r=>setMessages(p=>p.map(m=>m._id===msgId?r.data.message:m))).catch(()=>{});};
     const onGrpMsg=(msg)=>{if(selGroup?._id===msg.group)setGroupMsgs(p=>[...p,msg]);setGroups(p=>p.map(g=>g._id===msg.group?{...g,lastMessage:msg.content||'📎 Media',lastMessageTime:msg.createdAt}:g));};
-    socket.on('new_message',onMsg); socket.on('admin_typing',onTyping); socket.on('message_deleted',onDel); socket.on('message_reaction',onReact); socket.on('new_group_message',onGrpMsg); socket.on('new_story',loadStories); socket.on('stories_expired',loadStories);
-    return()=>{socket.off('new_message',onMsg);socket.off('admin_typing',onTyping);socket.off('message_deleted',onDel);socket.off('message_reaction',onReact);socket.off('new_group_message',onGrpMsg);socket.off('new_story',loadStories);socket.off('stories_expired',loadStories);};
+    socket.on('new_message',onMsg); socket.on('admin_typing',onTyping); socket.on('message_deleted',onDel); socket.on('message_reaction',onReact); socket.on('new_group_message',onGrpMsg); socket.on('new_story',loadStories); socket.on('stories_expired',loadStories); socket.on('admin_online',()=>setAdminOnline(true)); socket.on('admin_offline',()=>setAdminOnline(false));
+    return()=>{socket.off('new_message',onMsg);socket.off('admin_typing',onTyping);socket.off('message_deleted',onDel);socket.off('message_reaction',onReact);socket.off('new_group_message',onGrpMsg);socket.off('new_story',loadStories);socket.off('stories_expired',loadStories);socket.off('admin_online');socket.off('admin_offline');};
   },[view,selGroup,loadStories]);
 
   useEffect(()=>{if(view==='chat'){setUnread(0);messages.forEach(m=>{if(!m.isRead&&m.senderRole!=='parent')api.put(`/chat/${m._id}/read`).catch(()=>{});});}},[view]);
@@ -243,6 +245,7 @@ export default function ParentChat(){
   const sendMedia=async(file,isGrp=false)=>{
     if(!file)return;
     if(!file.type.startsWith('image/')&&!file.type.startsWith('video/')){toast.error('Images and videos only');return;}
+    if(file.size>15*1024*1024){toast.error('File too large — max 15MB');return;}
     toast('Sending…',{icon:'📎',duration:1500});
     const reader=new FileReader();
     reader.onload=e=>{
@@ -255,7 +258,7 @@ export default function ParentChat(){
   };
 
   const startRec=async()=>{
-    try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});const mr=new MediaRecorder(stream);const ch=[];mr.ondataavailable=e=>ch.push(e.data);mr.onstop=()=>{const blob=new Blob(ch,{type:'audio/webm'});const reader=new FileReader();reader.onload=e=>{const socket=getSocket();if(!socket)return;socket.emit('send_message',{senderId:user?._id,senderRole:'parent',parentId:user?._id,content:'',messageType:'voice',mediaData:e.target.result,mediaMimeType:'audio/webm'});};reader.readAsDataURL(blob);stream.getTracks().forEach(t=>t.stop());};mr.start();setRecObj(mr);setRecording(true);}catch{toast.error('Microphone denied');}
+    try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});const mt=MediaRecorder.isTypeSupported('audio/webm')?'audio/webm':MediaRecorder.isTypeSupported('audio/mp4')?'audio/mp4':'audio/ogg';const mr=new MediaRecorder(stream,{mimeType:mt});const ch=[];mr.ondataavailable=e=>ch.push(e.data);mr.onstop=()=>{const blob=new Blob(ch,{type:mt||'audio/webm'});const reader=new FileReader();reader.onload=e=>{const socket=getSocket();if(!socket)return;socket.emit('send_message',{senderId:user?._id,senderRole:'parent',parentId:user?._id,content:'',messageType:'voice',mediaData:e.target.result,mediaMimeType:'audio/webm'});};reader.readAsDataURL(blob);stream.getTracks().forEach(t=>t.stop());};mr.start();setRecObj(mr);setRecording(true);}catch{toast.error('Microphone denied');}
   };
   const stopRec=()=>{recObj?.stop();setRecording(false);setRecObj(null);};
 
@@ -284,7 +287,7 @@ export default function ParentChat(){
       </div>
     </div>);
 
-  const root={display:'flex',flexDirection:'column',height:'100dvh',background:'#111B21',color:'#E9EDEF',fontFamily:"'Segoe UI',system-ui,sans-serif",overflow:'hidden'};
+  const root={display:'flex',flexDirection:'column',height:'var(--vvh,100dvh)',background:'#111B21',color:'#E9EDEF',fontFamily:"'Segoe UI',system-ui,sans-serif",overflow:'hidden'};
   const mb={display:'block',width:'100%',padding:'14px 18px',background:'none',border:'none',color:'#E9EDEF',fontSize:15,textAlign:'left',cursor:'pointer'};
 
   // ── UPDATES ────────────────────────────────────────────────────────────────
@@ -352,7 +355,7 @@ export default function ParentChat(){
               <button onClick={()=>grpFileRef.current?.click()} style={iconBtnStyle}>📎</button>
               <textarea value={grpInput} onChange={e=>setGrpInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendGrpText();}}} placeholder="Message" rows={1} style={textareaStyle}/>
               {grpInput.trim()?<button onClick={sendGrpText} style={sendBtnStyle}>➤</button>
-                :<button style={{...sendBtnStyle,background:recording?'#EF4444':'#00A884'}} onMouseDown={startRec} onMouseUp={stopRec} onTouchStart={e=>{e.preventDefault();startRec();}} onTouchEnd={stopRec}>{recording?'⏹':'🎤'}</button>}
+                :<button style={{...sendBtnStyle,background:recording?'#EF4444':'#00A884'}} onMouseDown={startRec} onMouseUp={stopRec} onTouchStart={e=>{e.preventDefault();startRec();}} onTouchEnd={stopRec}>{recording?'⏹':<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>}</button>}
             </div>
           </>}
       </div>);
@@ -364,10 +367,10 @@ export default function ParentChat(){
       <CtxMenu/>
       <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:'#1F2C34',flexShrink:0,borderBottom:'0.5px solid rgba(255,255,255,0.06)'}}>
         <button onClick={()=>setView('list')} style={{background:'none',border:'none',color:'#8696A0',fontSize:22,cursor:'pointer',padding:'0 8px 0 0'}}>←</button>
-        <div style={{...av(38),background:'linear-gradient(135deg,#9B1826,#C02035)'}}><span style={{fontSize:16}}>🏫</span></div>
+        <div style={{position:'relative',flexShrink:0}}><div style={{...av(38),background:'linear-gradient(135deg,#9B1826,#C02035)'}}><span style={{fontSize:16}}>🏫</span></div>{adminOnline&&<div style={{position:'absolute',bottom:0,right:0,width:11,height:11,borderRadius:'50%',background:'#25D366',border:'2px solid #1F2C34'}}/>}</div>
         <div style={{flex:1}}>
           <div style={{fontSize:15,fontWeight:600}}>School Admin</div>
-          {adminTyping?<div style={{fontSize:12,color:'#00A884'}}>typing...</div>:<div style={{fontSize:12,color:'#8696A0'}}>Peace Mindset Private School</div>}
+          {adminTyping?<div style={{fontSize:12,color:'#00A884'}}>typing...</div>:adminOnline?<div style={{fontSize:12,color:'#25D366'}}>Online</div>:<div style={{fontSize:12,color:'#8696A0'}}>Peace Mindset Private School</div>}
         </div>
       </div>
       <div style={{flex:1,overflowY:'auto',padding:'6px 0 4px'}}>
@@ -391,7 +394,7 @@ export default function ParentChat(){
         />
         {input.trim()
           ?<button onClick={sendText} style={sendBtnStyle}>➤</button>
-          :<button style={{...sendBtnStyle,background:recording?'#EF4444':'#00A884'}} onMouseDown={startRec} onMouseUp={stopRec} onTouchStart={e=>{e.preventDefault();startRec();}} onTouchEnd={stopRec}>{recording?'⏹':'🎤'}</button>}
+          :<button style={{...sendBtnStyle,background:recording?'#EF4444':'#00A884'}} onMouseDown={startRec} onMouseUp={stopRec} onTouchStart={e=>{e.preventDefault();startRec();}} onTouchEnd={stopRec}>{recording?'⏹':<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>}</button>}
       </div>
     </div>);
 
