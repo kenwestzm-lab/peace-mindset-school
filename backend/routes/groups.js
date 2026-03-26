@@ -133,3 +133,18 @@ router.delete("/:id", protect, authorize("admin"), async (req, res) => {
 });
 
 module.exports = router;
+
+// PUT /api/groups/:id/join - Parent joins a group
+router.put("/:id/join", protect, async (req, res) => {
+  try {
+    const group = await Group.findByIdAndUpdate(
+      req.params.id,
+      { $addToSet: { members: req.user._id } },
+      { new: true }
+    ).populate("members", "name email profilePic");
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    const io = req.app.get("io");
+    io.to("admin_room").emit("group_member_joined", { groupId: group._id, user: req.user._id });
+    res.json({ group });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
