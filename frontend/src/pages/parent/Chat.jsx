@@ -243,6 +243,17 @@ export default function ParentChat(){
   };
 
   const sendMedia=async(file,isGrp=false)=>{
+    const socket=getSocket();if(!socket){toast.error('Not connected');return;}
+    const toastId=toast.loading('Uploading...');
+    try{
+      const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=rej;r.readAsDataURL(file);});
+      const up=await api.post('/media/upload',{mediaData:b64,mimeType:file.type,folder:'peace-mindset/chat'});
+      const p={senderId:user?._id,senderRole:'parent',content:'',messageType:file.type.startsWith('image/')?'image':'video',mediaData:up.data.url,mediaMimeType:file.type};
+      if(isGrp&&selGroup)socket.emit('send_group_message',{...p,groupId:selGroup._id});
+      else socket.emit('send_message',{...p,parentId:user?._id});
+      toast.success('Sent!',{id:toastId});
+    }catch(e){toast.error('Upload failed: '+(e.response?.data?.error||e.message),{id:toastId});}
+    return;
     if(!file)return;
     if(!file.type.startsWith('image/')&&!file.type.startsWith('video/')){toast.error('Images and videos only');return;}
     if(file.size>15*1024*1024){toast.error('File too large — max 15MB');return;}
@@ -258,7 +269,17 @@ export default function ParentChat(){
   };
 
   const startRec=async()=>{
-    try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});const mt=MediaRecorder.isTypeSupported('audio/webm')?'audio/webm':MediaRecorder.isTypeSupported('audio/mp4')?'audio/mp4':'audio/ogg';const mr=new MediaRecorder(stream,{mimeType:mt});const ch=[];mr.ondataavailable=e=>ch.push(e.data);mr.onstop=()=>{const blob=new Blob(ch,{type:mt||'audio/webm'});const reader=new FileReader();reader.onload=e=>{const socket=getSocket();if(!socket)return;socket.emit('send_message',{senderId:user?._id,senderRole:'parent',parentId:user?._id,content:'',messageType:'voice',mediaData:e.target.result,mediaMimeType:'audio/webm'});};reader.readAsDataURL(blob);stream.getTracks().forEach(t=>t.stop());};mr.start();setRecObj(mr);setRecording(true);}catch{toast.error('Microphone denied');}
+    try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});const mt=MediaRecorder.isTypeSupported('audio/webm')?'audio/webm':MediaRecorder.isTypeSupported('audio/mp4')?'audio/mp4':'audio/ogg';const mr=new MediaRecorder(stream,{mimeType:mt});const ch=[];mr.ondataavailable=e=>ch.push(e.data);mr.onstop=async()=>{
+      const blob=new Blob(ch,{type:mt||'audio/webm'});
+      const toastId=toast.loading('Sending voice note...');
+      try{
+        const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=rej;r.readAsDataURL(blob);});
+        const up=await api.post('/media/upload',{mediaData:b64,mimeType:'audio/webm',folder:'peace-mindset/voice'});
+        const socket=getSocket();if(!socket)throw new Error('Not connected');
+        socket.emit('send_message',{senderId:user?._id,senderRole:'parent',parentId:user?._id,content:'',messageType:'voice',mediaData:up.data.url,mediaMimeType:'audio/webm'});
+        toast.success('Voice note sent!',{id:toastId});
+      }catch(e){toast.error('Voice failed: '+(e.response?.data?.error||e.message),{id:toastId});}
+      stream.getTracks().forEach(t=>t.stop());};mr.start();setRecObj(mr);setRecording(true);}catch{toast.error('Microphone denied');}
   };
   const stopRec=()=>{recObj?.stop();setRecording(false);setRecObj(null);};
 
