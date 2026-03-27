@@ -53,6 +53,7 @@ app.use("/api/auth", require("./routes/auth"));
 app.use("/api/children", require("./routes/children"));
 app.use("/api/payments", require("./routes/payments"));
 app.use("/api/results", require("./routes/results"));
+app.use("/api/report-cards", require("./routes/reportCards"));
 const { announcementRouter, eventRouter } = require("./routes/announcements");
 app.use("/api/announcements", announcementRouter);
 app.use("/api/events", eventRouter);
