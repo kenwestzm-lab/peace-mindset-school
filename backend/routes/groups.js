@@ -31,7 +31,6 @@ router.post("/", protect, authorize("admin"), async (req, res) => {
     });
     const populated = await group.populate("members", "name email profilePic");
 
-    // Notify all members via socket
     const io = req.app.get("io");
     for (const memberId of group.members) {
       io.to(`user:${memberId}`).emit("group_added", { group: populated });
@@ -57,6 +56,53 @@ router.post("/:id/members", protect, authorize("admin"), async (req, res) => {
       io.to(`user:${memberId}`).emit("group_added", { group });
     }
     res.json({ group });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/groups/:id/members - Get member list (for GroupSettings panel)
+router.get("/:id/members", protect, async (req, res) => {
+  try {
+    const group = await Group.findById(req.params.id).populate("members", "name email profilePic");
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    res.json({ members: group.members || [] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /api/groups/:id - Update group name, description, photo, permissions
+router.put("/:id", protect, authorize("admin"), async (req, res) => {
+  try {
+    const { name, description, photo, permissions } = req.body;
+    const update = {};
+    if (name) update.name = name;
+    if (description !== undefined) update.description = description;
+    if (photo) update.photo = photo;
+    if (permissions) update.permissions = permissions;
+
+    const group = await Group.findByIdAndUpdate(req.params.id, update, { new: true });
+    if (!group) return res.status(404).json({ error: "Group not found" });
+
+    const io = req.app.get("io");
+    io.to(`group:${req.params.id}`).emit("group_updated", {
+      groupId: req.params.id,
+      name: group.name,
+      photo: group.photo,
+      permissions: group.permissions,
+    });
+
+    res.json({ group });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/groups/:id/members/:userId - Remove a member
+router.delete("/:id/members/:userId", protect, authorize("admin"), async (req, res) => {
+  try {
+    const group = await Group.findByIdAndUpdate(
+      req.params.id,
+      { $pull: { members: req.params.userId } },
+      { new: true }
+    );
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -94,7 +140,7 @@ router.post("/:id/messages", protect, async (req, res) => {
       mediaData: mediaData || null, mediaMimeType: mediaMimeType || null, duration: duration || null,
     });
     await Group.findByIdAndUpdate(req.params.id, {
-      lastMessage: messageType !== "text" ? `📎 ${messageType}` : (content||"").substring(0,60),
+      lastMessage: messageType !== "text" ? `📎 ${messageType}` : (content || "").substring(0, 60),
       lastMessageTime: new Date(),
     });
     const populated = await msg.populate("sender", "name role profilePic");
@@ -132,8 +178,6 @@ router.delete("/:id", protect, authorize("admin"), async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-module.exports = router;
-
 // PUT /api/groups/:id/join - Parent joins a group
 router.put("/:id/join", protect, async (req, res) => {
   try {
@@ -148,3 +192,5 @@ router.put("/:id/join", protect, async (req, res) => {
     res.json({ group });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+module.exports = router;
