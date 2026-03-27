@@ -154,7 +154,7 @@ function CreateStory({onClose,onPosted}){
 // Shared style helpers
 const av=(s)=>({width:s,height:s,borderRadius:'50%',background:'linear-gradient(135deg,#2A3942,#3B4A54)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:Math.round(s*0.38),fontWeight:700,color:'#fff',overflow:'hidden',flexShrink:0});
 const avImg={width:'100%',height:'100%',objectFit:'cover'};
-const inputBarStyle={display:'flex',alignItems:'flex-end',gap:8,padding:'6px 10px 8px',background:'#1F2C34',flexShrink:0};
+const inputBarStyle={display:'flex',alignItems:'flex-end',gap:8,padding:'6px 10px 8px',background:'#1F2C34',flexShrink:0,position:'sticky',bottom:0,zIndex:10};
 const textareaStyle={flex:1,background:'#2A3942',border:'none',borderRadius:24,padding:'10px 14px',color:'#E9EDEF',fontSize:15,outline:'none',resize:'none',maxHeight:120,lineHeight:1.4,minHeight:40,fontFamily:"'Segoe UI',system-ui,sans-serif"};
 const sendBtnStyle={width:46,height:46,borderRadius:'50%',background:'#00A884',border:'none',color:'#fff',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0};
 const iconBtnStyle={width:42,height:42,borderRadius:'50%',background:'#2A3942',border:'none',color:'#8696A0',fontSize:19,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0};
@@ -287,7 +287,7 @@ export default function ParentChat(){
       </div>
     </div>);
 
-  const root={display:'flex',flexDirection:'column',height:'var(--vvh,100dvh)',background:'#111B21',color:'#E9EDEF',fontFamily:"'Segoe UI',system-ui,sans-serif",overflow:'hidden'};
+  const root={display:'flex',flexDirection:'column',height:'100dvh',maxHeight:'100dvh',background:'#111B21',color:'#E9EDEF',fontFamily:"'Segoe UI',system-ui,sans-serif",overflow:'hidden'};
   const mb={display:'block',width:'100%',padding:'14px 18px',background:'none',border:'none',color:'#E9EDEF',fontSize:15,textAlign:'left',cursor:'pointer'};
 
   // ── UPDATES ────────────────────────────────────────────────────────────────
@@ -373,7 +373,7 @@ export default function ParentChat(){
           {adminTyping?<div style={{fontSize:12,color:'#00A884'}}>typing...</div>:adminOnline?<div style={{fontSize:12,color:'#25D366'}}>Online</div>:<div style={{fontSize:12,color:'#8696A0'}}>Peace Mindset Private School</div>}
         </div>
       </div>
-      <div style={{flex:1,overflowY:'auto',padding:'6px 0 4px'}}>
+      <div style={{flex:1,overflowY:'auto',padding:'6px 0 4px',WebkitOverflowScrolling:'touch'}}>
         {messages.length===0&&<div style={{textAlign:'center',padding:'60px 20px',color:'#8696A0'}}><div style={{fontSize:48,marginBottom:10}}>💬</div><div>Send a message to the school admin</div></div>}
         {groupMsgsByDay(messages).map((grp,gi)=>(
           <div key={gi}>

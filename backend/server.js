@@ -86,6 +86,8 @@ io.on("connection", (socket) => {
   socket.on("join_admin", () => {
     socket.join("admin_room");
     socket.emit("online_users", { userIds: Array.from(connectedUsers.keys()) });
+    // Notify all parents that admin is online
+    socket.broadcast.emit("admin_online");
   });
 
   socket.on("join_group", (groupId) => socket.join(`group:${groupId}`));
@@ -199,12 +201,16 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
+    let wasAdmin=false;
     connectedUsers.forEach((sid, uid) => {
       if (sid === socket.id) {
         connectedUsers.delete(uid);
         io.to("admin_room").emit("user_online", { userId: uid, online: false });
       }
     });
+    // Check if admin disconnected
+    const adminRooms=[...socket.rooms];
+    if(adminRooms.includes('admin_room'))io.emit('admin_offline');
   });
 });
 
