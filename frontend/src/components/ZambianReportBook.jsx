@@ -165,8 +165,11 @@ function ReportCover({ child, card }) {
 
 /* ── Subjects Table ──────────────────────────────────────────────── */
 function SubjectsTable({ subjects }) {
-  const totalAll = subjects.reduce((s,x)=>s+(+x.total||0),0);
-  const avg = subjects.length ? Math.round(totalAll/subjects.length) : 0;
+  const enteredSubjects = subjects.filter(s =>
+    (Number(s.continuous_assessment)||0) > 0 || (Number(s.end_of_term_exam)||0) > 0
+  );
+  const totalAll = enteredSubjects.reduce((s,x)=>s+(+x.total||0),0);
+  const avg = enteredSubjects.length ? Math.round(totalAll/enteredSubjects.length) : 0;
   const avgGrade = enteredSubjects.length > 0 ? getZambianGrade(avg) : null;
   return (
     <div style={{background:'#fff',border:'2px solid #9B1826',borderRadius:12,overflow:'hidden'}}>
