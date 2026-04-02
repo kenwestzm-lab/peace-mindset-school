@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: peace-mindset-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: ADMIN_EMAIL
+        value: adminpeacemindset.edu.zm@gmail.com
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: DEVELOPER_EMAIL
+        value: kenwestzm@gmail.com
+      - key: DEVELOPER_PASSWORD
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: PLATFORM_FEE_PERCENT
+        value: "5"
+      - key: AIRTEL_NUMBER
+        value: "0977200127"
+      - key: MTN_NUMBER
+        value: "0960774535"
