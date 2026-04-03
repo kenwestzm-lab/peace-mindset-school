@@ -161,17 +161,3 @@ router.put(
 );
 
 module.exports = router;
-
-// TEMP: One-time admin seed — DELETE AFTER USE
-router.post("/seed-admin", async (req, res) => {
-  try {
-    const User = require("../models/User");
-    const user = await User.findOneAndUpdate(
-      { email: "admin@peacemindset.com" },
-      { role: "admin", isActive: true, name: "Peace Mindset Admin" },
-      { new: true }
-    );
-    if (!user) return res.status(404).json({ error: "User not found" });
-    res.json({ success: true, role: user.role, email: user.email });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
