@@ -28,6 +28,9 @@ app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(morgan("dev"));
 const allowedOrigins=[
   process.env.FRONTEND_URL,
+  "null", // Android WebView sends null origin
+  "https://peace-mindset-school.vercel.app",
+  "https://peace-mindset-school-git-main-kenwestzm.vercel.app",
   "http://localhost:5173",
   "https://peace-mindset-school.vercel.app",
   "https://peace-mindset-school-git-main-kenwestzm.vercel.app"
