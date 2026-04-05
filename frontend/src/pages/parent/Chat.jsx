@@ -475,7 +475,9 @@ export default function ParentChat(){
         {val.trim()
           ?<button onClick={onSend} style={sendBtnStyle}><SendIcon/></button>
           :<button style={sendBtnStyle} onMouseDown={e=>{e.preventDefault();startRec();}} onTouchStart={e=>{e.preventDefault();startRec();}}><MicIcon/></button>}
-      </div>);
+      </div>
+      </>
+    );
   };
 
   if(view==='updates')return(
