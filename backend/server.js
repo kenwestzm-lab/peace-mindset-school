@@ -1,9 +1,10 @@
+require("dotenv").config({path: require("path").resolve(__dirname, ".env")});
 // ── COMPLETE server.js REPLACEMENT ────────────────────────────────────
 // Key fix: socket ONLY handles text & voice (small).
 // Photos/videos go via HTTP POST /api/chat which uploads to Cloudinary first.
 // This is the CORRECT architecture - socket was never meant for large binary data.
 
-require("dotenv").config();
+require("dotenv").config({path: require("path").resolve(__dirname, ".env")});
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: "https://peace-mindset-school.vercel.app",
+  baseURL: import.meta.env.VITE_API_URL || "https://peace-mindset-backend.onrender.com/api",
   timeout: 20000,
   withCredentials: true
 });
