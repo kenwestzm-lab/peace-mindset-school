@@ -510,8 +510,8 @@ export default function ParentChat(){
       </div>
     </div>);
 
+  const isMember=selGroup?.members?.some(m=>(m._id||m)===user?._id);
   if(view==='group'&&selGroup){
-    const isMember=selGroup.members?.some(m=>(m._id||m)===user?._id);
     return(
       <div style={root}>
         <CtxMenu/>
