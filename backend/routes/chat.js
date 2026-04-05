@@ -124,6 +124,11 @@ router.post("/", protect, async (req, res) => {
       finalMediaUrl = mediaData;
     }
 
+    // Calculate auto-delete time if set
+    let autoDeleteAt = null;
+    if (req.body.autoDeleteSeconds) {
+      autoDeleteAt = new Date(Date.now() + req.body.autoDeleteSeconds * 1000);
+    }
     const message = await Message.create({
       sender: req.user._id,
       senderRole: req.user.role === "admin" ? "admin" : "parent",
@@ -134,6 +139,7 @@ router.post("/", protect, async (req, res) => {
       mediaPublicId,
       mediaMimeType: mediaMimeType || null,
       duration: duration || null,
+      autoDeleteAt,
     });
 
     const populated = await message.populate("sender", "name role profilePic");

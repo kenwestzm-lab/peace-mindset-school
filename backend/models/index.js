@@ -49,6 +49,8 @@ const messageSchema = new mongoose.Schema({
   mediaMimeType: { type: String },
   duration: { type: Number },
   isRead: { type: Boolean, default: false },
+  duration: { type: Number, default: null }, // voice note duration in seconds
+  autoDeleteAt: { type: Date, default: null }, // disappearing message timer
   deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   deletedForEveryone: { type: Boolean, default: false },
   reactions: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, emoji: String }],

@@ -30,22 +30,24 @@ const sendBtnStyle = { width: 46, height: 46, borderRadius: '50%', background: '
 const iconBtnStyle = { width: 42, height: 42, borderRadius: '50%', background: '#2A3942', border: 'none', color: '#8696A0', fontSize: 19, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 };
 
 /* ─── VoiceMsg ────────────────────────────────────────────────────── */
-function VoiceMsg({ src }) {
+function VoiceMsg({ src, dur: msgDur }) {
   const [playing, setPlaying] = useState(false);
   const [prog, setProg] = useState(0);
-  const [dur, setDur] = useState(0);
+  const [dur, setDur] = useState(msgDur || 0);
+  const [cur, setCur] = useState(0);
   const ref = useRef(null);
+  const fmtD = s => (!s||!isFinite(s)||isNaN(s)) ? '0:00' : `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
   const toggle = () => {
     if (!ref.current) return;
     if (playing) { ref.current.pause(); setPlaying(false); }
-    else { ref.current.play(); setPlaying(true); }
+    else { ref.current.play().catch(()=>{}); setPlaying(true); }
   };
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 180 }}>
-      <audio ref={ref} src={src}
-        onTimeUpdate={e => setProg(e.target.currentTime / e.target.duration * 100)}
-        onLoadedMetadata={e => setDur(e.target.duration)}
-        onEnded={() => { setPlaying(false); setProg(0); }} />
+      <audio ref={ref} src={src} preload="metadata"
+        onTimeUpdate={e => { setProg(e.target.currentTime/(e.target.duration||1)*100); setCur(e.target.currentTime); }}
+        onLoadedMetadata={e => { if(e.target.duration&&isFinite(e.target.duration)) setDur(e.target.duration); }}
+        onEnded={() => { setPlaying(false); setProg(0); setCur(0); }} />
       <button onClick={toggle} style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {playing ? '⏸' : '▶'}
       </button>
@@ -118,7 +120,7 @@ function Bubble({ msg, isMe, showName, onLongPress }) {
           {deleted ? <span style={{ color: 'rgba(255,255,255,0.35)', fontStyle: 'italic', fontSize: 14 }}>🚫 This message was deleted</span> : <>
             {msg.messageType === 'image' && msg.mediaData && <img src={msg.mediaData} style={{ maxWidth: '100%', borderRadius: 8, display: 'block', marginBottom: 3, cursor: 'pointer', maxHeight: 260, objectFit: 'cover' }} onClick={() => setBig(true)} alt="" />}
             {msg.messageType === 'video' && msg.mediaData && <video src={msg.mediaData} controls style={{ maxWidth: '100%', borderRadius: 8, display: 'block', marginBottom: 3, maxHeight: 260 }} />}
-            {msg.messageType === 'voice' && msg.mediaData && <VoiceMsg src={msg.mediaData} />}
+            {msg.messageType === 'voice' && msg.mediaData && <VoiceMsg src={msg.mediaData} dur={msg.duration}/>}
             {msg.content && <p style={{ margin: 0, fontSize: 15, color: '#E9EDEF', lineHeight: 1.45, wordBreak: 'break-word' }}>{msg.content}</p>}
             {msg.reactions?.length > 0 && <div style={{ position: 'absolute', bottom: -10, right: 6, background: '#2A3942', borderRadius: 10, padding: '2px 7px', fontSize: 13, boxShadow: '0 1px 3px rgba(0,0,0,0.4)', display: 'flex', gap: 2 }}>
               {[...new Set(msg.reactions.map(r => r.emoji))].join('')}
@@ -457,6 +459,8 @@ export default function AdminChat() {
   const [unread, setUnread] = useState({});
   const [search, setSearch] = useState('');
   const [recording, setRecording] = useState(false);
+  const [viewPic, setViewPic] = useState(null);
+  const [autoDeleteSecs, setAutoDeleteSecs] = useState(0);
   const [recObj, setRecObj] = useState(null);
   const [recTime, setRecTime] = useState(0);
   const [menu, setMenu] = useState(null);
@@ -627,7 +631,7 @@ export default function AdminChat() {
       setRecObj(mr);
       setRecording(true);
       setRecTime(0);
-      recTimerRef.current = setInterval(() => setRecTime(t => t + 1), 1000);
+      recTimerRef.current = setInterval(() => setRecTime(t => t + 1), 1000); // No time limit
     } catch (err) {
       if (err.name === 'NotAllowedError') toast.error('Microphone permission denied');
       else toast.error('Mic error: ' + err.message);
@@ -719,6 +723,12 @@ export default function AdminChat() {
   /* ─── DM panel ─── */
   if (panel === 'dm' && selParent) return (
     <div style={root}>
+      {viewPic && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.95)',zIndex:99999,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}} onClick={()=>setViewPic(null)}>
+          <img src={viewPic} style={{maxWidth:'92vw',maxHeight:'82vh',objectFit:'contain',borderRadius:12}} alt="Profile"/>
+          <button onClick={()=>setViewPic(null)} style={{padding:'10px 32px',background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',borderRadius:24,color:'#fff',fontSize:14,cursor:'pointer'}}>✕ Close</button>
+        </div>
+      )}
       <CtxMenu />
       {showGroupSettings && selGroup && <GroupSettings group={selGroup} onClose={() => setShowGroupSettings(false)} onUpdated={() => { loadGroups(); loadGroupMsgs(selGroup._id); }} currentUserId={user?._id} />}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#1F2C34', flexShrink: 0, borderBottom: '0.5px solid rgba(255,255,255,0.06)' }}>

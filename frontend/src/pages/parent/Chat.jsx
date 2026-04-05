@@ -63,23 +63,30 @@ function StoryViewer({groups,groupIdx:initGI,onClose,currentUserId}){
     </div>);
 }
 
-function VoiceMsg({src,isMe}){
+function VoiceMsg({src,isMe,msgDuration}){
   const [playing,setPlaying]=useState(false);
   const [prog,setProg]=useState(0);
-  const [dur,setDur]=useState(0);
+  const [dur,setDur]=useState(msgDuration||0);
   const [cur,setCur]=useState(0);
   const ref=useRef(null);
   const toggle=()=>{
     if(!ref.current)return;
     if(playing){ref.current.pause();setPlaying(false);}
-    else{ref.current.play().catch(()=>{});setPlaying(true);}
+    else{
+      ref.current.play().catch(e=>{
+        // Try to load from cache if network fails
+        console.warn('Voice play error:',e);
+        toast.error('Tap again to play voice note');
+      });
+      setPlaying(true);
+    }
   };
   const waveBars=[3,5,8,12,16,20,18,14,10,7,5,8,13,18,22,17,12,8,5,3];
   return(
     <div style={{display:'flex',alignItems:'center',gap:10,minWidth:200,padding:'2px 0'}}>
-      <audio ref={ref} src={src}
-        onTimeUpdate={e=>{const t=e.target;setProg(t.currentTime/t.duration*100||0);setCur(t.currentTime);}}
-        onLoadedMetadata={e=>setDur(e.target.duration)}
+      <audio ref={ref} src={src} preload="metadata"
+        onTimeUpdate={e=>{const t=e.target;setProg(t.currentTime/(t.duration||1)*100);setCur(t.currentTime);}}
+        onLoadedMetadata={e=>{if(e.target.duration&&isFinite(e.target.duration))setDur(e.target.duration);}}
         onEnded={()=>{setPlaying(false);setProg(0);setCur(0);}}/>
       <button onClick={toggle} style={{width:40,height:40,borderRadius:'50%',background:isMe?'rgba(255,255,255,0.2)':'rgba(0,168,132,0.3)',border:'none',color:'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
         {playing
@@ -111,14 +118,14 @@ function Bubble({msg,isMe,onLongPress}){
     <>
       <div style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start',marginBottom:2,paddingLeft:isMe?48:8,paddingRight:isMe?8:48}}
         onTouchStart={onTS} onTouchMove={onTM} onTouchEnd={onTE} onMouseDown={onTS} onMouseUp={onTE}>
-        {!isMe&&<div style={{...av(28),flexShrink:0,marginRight:5,alignSelf:'flex-end'}}>{msg.sender?.profilePic?<img src={msg.sender.profilePic} style={avImg} alt=""/>:<span style={{fontSize:11}}>{msg.sender?.name?.[0]?.toUpperCase()||'A'}</span>}</div>}
+        {!isMe&&<div style={{...av(28),flexShrink:0,marginRight:5,alignSelf:'flex-end',cursor:msg.sender?.profilePic?'pointer':'default'}} onClick={()=>msg.sender?.profilePic&&setViewPic(msg.sender.profilePic)}>{msg.sender?.profilePic?<img src={msg.sender.profilePic} style={avImg} alt=""/>:<span style={{fontSize:11}}>{msg.sender?.name?.[0]?.toUpperCase()||'A'}</span>}</div>}
         <div style={{maxWidth:'75%',padding:'7px 9px 4px',borderRadius:isMe?'12px 12px 2px 12px':'12px 12px 12px 2px',background:isMe?'#005C4B':'#1F2C34',boxShadow:'0 1px 2px rgba(0,0,0,0.25)',position:'relative'}}>
           {deleted
             ?<span style={{color:'rgba(255,255,255,0.35)',fontStyle:'italic',fontSize:14}}>🚫 This message was deleted</span>
             :<>
               {msg.messageType==='image'&&msg.mediaData&&<img src={msg.mediaData} style={{maxWidth:'100%',borderRadius:8,display:'block',marginBottom:3,cursor:'pointer',maxHeight:260,objectFit:'cover'}} onClick={()=>setBig(true)} alt=""/>}
               {msg.messageType==='video'&&msg.mediaData&&<video src={msg.mediaData} controls playsInline style={{maxWidth:'100%',borderRadius:8,display:'block',marginBottom:3,maxHeight:260}}/>}
-              {msg.messageType==='voice'&&msg.mediaData&&<VoiceMsg src={msg.mediaData} isMe={isMe}/>}
+              {msg.messageType==='voice'&&msg.mediaData&&<VoiceMsg src={msg.mediaData} isMe={isMe} msgDuration={msg.duration}/>}
               {msg.content&&<p style={{margin:0,fontSize:15,color:'#E9EDEF',lineHeight:1.45,wordBreak:'break-word'}}>{msg.content}</p>}
               {msg.reactions?.length>0&&<div style={{position:'absolute',bottom:-10,right:6,background:'#2A3942',borderRadius:10,padding:'2px 7px',fontSize:13,boxShadow:'0 1px 3px rgba(0,0,0,0.4)',display:'flex',gap:2}}>{[...new Set(msg.reactions.map(r=>r.emoji))].join('')}<span style={{fontSize:10,color:'#8696A0',marginLeft:2}}>{msg.reactions.length}</span></div>}
             </>}
@@ -229,6 +236,8 @@ export default function ParentChat(){
   const [uploading,setUploading]=useState(false);
   const [menu,setMenu]=useState(null);
   const [unread,setUnread]=useState(0);
+  const [viewPic,setViewPic]=useState(null); // Full screen profile pic viewer
+  const [autoDeleteSecs,setAutoDeleteSecs]=useState(0); // Disappearing messages
   const [lastMsg,setLastMsg]=useState(null);
   const [storyGroups,setStoryGroups]=useState([]);
   const [myStories,setMyStories]=useState([]);
@@ -311,7 +320,16 @@ export default function ParentChat(){
     if(socket){socket.emit('typing',{isTyping:true,senderRole:'parent',parentId:user?._id});clearTimeout(typingTimer.current);typingTimer.current=setTimeout(()=>socket.emit('typing',{isTyping:false,senderRole:'parent',parentId:user?._id}),1500);}
   };
 
-  const sendText=()=>{const txt=input.trim();if(!txt)return;const socket=getSocket();if(!socket){toast.error('Not connected');return;}socket.emit('send_message',{senderId:user?._id,senderRole:'parent',parentId:user?._id,content:txt,messageType:'text'});setInput('');};
+  const sendText=()=>{
+    const txt=input.trim();if(!txt)return;
+    const socket=getSocket();if(!socket){toast.error('Not connected');return;}
+    socket.emit('send_message',{
+      senderId:user?._id,senderRole:'parent',parentId:user?._id,
+      content:txt,messageType:'text',
+      autoDeleteSeconds:autoDeleteSecs>0?autoDeleteSecs:undefined,
+    });
+    setInput('');
+  };
   const sendGrpText=()=>{const txt=grpInput.trim();if(!txt||!selGroup)return;const socket=getSocket();if(socket)socket.emit('send_group_message',{groupId:selGroup._id,senderId:user?._id,senderRole:'parent',content:txt,messageType:'text'});setGrpInput('');};
 
   const sendMedia=async(file,isGrp=false)=>{
@@ -346,7 +364,7 @@ export default function ParentChat(){
       const mr=new MediaRecorder(stream,{mimeType:mt});
       mr.ondataavailable=e=>{if(e.data.size>0)recChunksRef.current.push(e.data);};
       mr.start(100);recMR.current=mr;setRecording(true);
-      recAutoTimer.current=setTimeout(()=>{stopRecAndSend();},120000);
+      // No time limit on voice recording
     }catch(err){console.error(err);toast.error('Mic blocked! Tap the 🔒 lock icon in your browser address bar → Site settings → Microphone → Allow',{duration:6000});}
   };
 
@@ -366,7 +384,13 @@ export default function ParentChat(){
       let url=b64;
       try{const resp=await api.post('/media/upload',{mediaData:b64,mimeType:recMimeRef.current,folder:'peace-mindset/voice'});url=resp.data.url;}catch(uploadErr){console.warn('Cloudinary down, sending base64');}
       const socket=getSocket();if(!socket){toast.error('Not connected',{id:tid});return;}
-      const vPayload={senderId:user?._id,senderRole:'parent',parentId:user?._id,content:'',messageType:'voice',mediaData:url,mediaMimeType:recMimeRef.current};
+      // Calculate actual duration from recorded blob
+      let voiceDuration = secs || 0;
+      try {
+        const tmpAudio = new Audio(url);
+        await new Promise(res => { tmpAudio.onloadedmetadata = () => { if(isFinite(tmpAudio.duration)) voiceDuration = Math.round(tmpAudio.duration); res(); }; tmpAudio.onerror = res; setTimeout(res, 2000); });
+      } catch {}
+      const vPayload={senderId:user?._id,senderRole:'parent',parentId:user?._id,content:'',messageType:'voice',mediaData:url,mediaMimeType:recMimeRef.current,duration:voiceDuration,autoDeleteSeconds:autoDeleteSecs>0?autoDeleteSecs:undefined};
       if(view==='group'&&selGroup){
         socket.emit('send_group_message',{...vPayload,groupId:selGroup._id,senderId:user?._id,senderRole:'parent'});
         const vO={_id:'tmp_'+Date.now(),sender:{_id:user?._id,name:user?.name,profilePic:user?.profilePic},senderRole:'parent',content:'',messageType:'voice',mediaData:url,createdAt:new Date().toISOString()};
@@ -417,12 +441,31 @@ export default function ParentChat(){
 
   const root={display:'flex',flexDirection:'column',height:'100dvh',background:'#111B21',color:'#E9EDEF',fontFamily:"'Segoe UI',system-ui,sans-serif",overflow:'hidden'};
 
+  // ── Disappearing message timer options ─────────────────────
+  const timerOptions=[
+    {label:'Off',secs:0},
+    {label:'30s',secs:30},
+    {label:'1m',secs:60},
+    {label:'5m',secs:300},
+    {label:'1h',secs:3600},
+    {label:'24h',secs:86400},
+    {label:'7d',secs:604800},
+  ];
+
   const InputBar=({isGrp=false})=>{
     const val=isGrp?grpInput:input;
     const onChange=isGrp?e=>setGrpInput(e.target.value):handleInput;
     const onSend=isGrp?sendGrpText:sendText;
     const fRef=isGrp?grpFileRef:fileRef;
     return recording?<VoiceRecBar onCancel={cancelRec} onSend={stopRecAndSend}/>:(
+      <>
+      {/* Disappearing message timer */}
+      {!isGrp && autoDeleteSecs > 0 && (
+        <div style={{display:'flex',alignItems:'center',gap:6,padding:'4px 10px',background:'rgba(251,146,60,0.1)',borderTop:'1px solid rgba(251,146,60,0.2)',flexShrink:0}}>
+          <span style={{fontSize:11,color:'#FB923C'}}>⏱ Messages disappear after {timerOptions.find(t=>t.secs===autoDeleteSecs)?.label}</span>
+          <button onClick={()=>setAutoDeleteSecs(0)} style={{background:'none',border:'none',color:'#FB923C',fontSize:13,cursor:'pointer',padding:0}}>✕</button>
+        </div>
+      )}
       <div style={inputBarStyle}>
         <input ref={fRef} type="file" accept="image/*,video/*" style={{display:'none'}} onChange={e=>{sendMedia(e.target.files[0],isGrp);e.target.value='';}}/>
         <button onClick={()=>!uploading&&fRef.current?.click()} style={{...iconBtnStyle,opacity:uploading?0.5:1}}><ClipIcon/></button>
@@ -536,6 +579,13 @@ export default function ParentChat(){
 
   return(
     <div style={root}>
+      {/* Full-screen profile picture viewer */}
+      {viewPic && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.95)',zIndex:99999,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}} onClick={()=>setViewPic(null)}>
+          <img src={viewPic} style={{maxWidth:'92vw',maxHeight:'82vh',objectFit:'contain',borderRadius:12,boxShadow:'0 8px 32px rgba(0,0,0,0.8)'}} alt="Profile"/>
+          <button onClick={()=>setViewPic(null)} style={{padding:'10px 32px',background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',borderRadius:24,color:'#fff',fontSize:14,cursor:'pointer'}}>✕ Close</button>
+        </div>
+      )}
       {showCreate&&<CreateStory onClose={()=>setShowCreate(false)} onPosted={()=>{setShowCreate(false);loadStories();}}/>}
       {storyViewer!=null&&<StoryViewer groups={allSG} groupIdx={storyViewer} onClose={()=>setStoryViewer(null)} currentUserId={user?._id}/>}
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:'#1F2C34',flexShrink:0}}>

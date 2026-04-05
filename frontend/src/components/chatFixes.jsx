@@ -127,8 +127,8 @@ export async function sendMediaMessage({ file, parentId, senderRole, token, onPr
       try {
         onProgress && onProgress(60);
 
-        const res = await fetch("/api/chat", {
-          method: "POST",
+        const res = await fetch("https://peace-mindset-school.vercel.app/api/chat"), {
+          method: "POST"
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,

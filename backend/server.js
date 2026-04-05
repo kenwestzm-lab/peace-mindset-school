@@ -152,6 +152,9 @@ io.on("connection", (socket) => {
         mediaPublicId,
         mediaMimeType: data.mediaMimeType || null,
         duration: data.duration || null,
+        autoDeleteAt: data.autoDeleteSeconds
+          ? new Date(Date.now() + data.autoDeleteSeconds * 1000)
+          : null,
       });
 
       const populated = await msg.populate("sender", "name email profilePic");
@@ -248,6 +251,25 @@ io.on("connection", (socket) => {
 });
 
 // ── Cron jobs ─────────────────────────────────────────────────────────
+// Every 30 seconds: delete auto-delete messages
+require("node-cron").schedule("*/1 * * * *", async () => {
+  try {
+    const { Message, GroupMessage } = require("./models/index");
+    const now = new Date();
+    const expired = await Message.find({ autoDeleteAt: { $lt: now }, deletedForEveryone: false });
+    for (const m of expired) {
+      await Message.findByIdAndUpdate(m._id, { deletedForEveryone: true, content: "⏱ Message disappeared", mediaData: null });
+      io.to("admin_room").emit("message_deleted", { msgId: m._id, forEveryone: true });
+      io.to(`user:${m.parentId}`).emit("message_deleted", { msgId: m._id, forEveryone: true });
+    }
+    const expiredGrp = await GroupMessage.find({ autoDeleteAt: { $lt: now }, deletedForEveryone: false });
+    for (const m of expiredGrp) {
+      await GroupMessage.findByIdAndUpdate(m._id, { deletedForEveryone: true, content: "⏱ Message disappeared", mediaData: null });
+      io.to(`group:${m.group}`).emit("group_message_deleted", { msgId: m._id, forEveryone: true });
+    }
+  } catch {}
+});
+
 require("node-cron").schedule("* * * * *", async () => {
   try {
     const { Story } = require("./models/index");

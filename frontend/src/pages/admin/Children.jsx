@@ -67,6 +67,16 @@ export default function AdminChildren() {
     finally { setSubmitting(false); }
   };
 
+  const deleteChild = async (child) => {
+    if (!window.confirm(`⚠️ Delete ${child.name} permanently?\n\nThis cannot be undone. All records for this student will be removed.`)) return;
+    const tid = toast.loading(`Deleting ${child.name}...`);
+    try {
+      await api.delete(`/children/${child._id}`);
+      setChildren(p => p.filter(c => c._id !== child._id));
+      toast.success(`✅ ${child.name} deleted`, { id: tid });
+    } catch(e) { toast.error(e.response?.data?.error || 'Delete failed', { id: tid }); }
+  };
+
   const saveEdit = async () => {
     if (!editChild) return;
     setSubmitting(true);
@@ -339,6 +349,12 @@ export default function AdminChildren() {
                     style={{ padding:'7px 16px', background:'rgba(167,139,250,0.1)', border:'1px solid rgba(167,139,250,0.3)', borderRadius:20, color:'#A78BFA', fontSize:12, fontWeight:700, cursor:'pointer' }}
                   >
                     📷 Update Photo
+                  </button>
+                  <button
+                    onClick={() => deleteChild(child)}
+                    style={{ padding:'7px 16px', background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.3)', borderRadius:20, color:'#FC8181', fontSize:12, fontWeight:700, cursor:'pointer' }}
+                  >
+                    🗑️ Delete
                   </button>
                 </div>
               </div>

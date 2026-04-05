@@ -1,8 +1,9 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
-  timeout: 120000, // 2 min for large uploads
+  baseURL: "https://peace-mindset-school.vercel.app",
+  timeout: 20000,
+  withCredentials: true
 });
 
 // Attach token to every request
