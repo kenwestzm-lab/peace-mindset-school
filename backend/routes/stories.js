@@ -34,6 +34,8 @@ router.post("/", protect, async (req, res) => {
         const r = await smartUpload(audioData, { mimeType: audioMimeType||"audio/mpeg", folder: "peace-mindset/story-audio" });
         finalAudioUrl = r.url; audioPublicId = r.publicId;
       } catch (e) { finalAudioUrl = audioData; }
+    } else if (req.body.audioUrl) {
+      finalAudioUrl = req.body.audioUrl;
     }
 
     const story = await Story.create({

@@ -104,7 +104,22 @@ export default function AdminStories() {
   const [uploadProg, setUploadProg] = useState(null);
   const fileRef = useRef(null);
   const audioRef = useRef(null);
+  const [showMusicSearch, setShowMusicSearch] = useState(false);
+  const [musicQuery, setMusicQuery] = useState('');
+  const [musicResults, setMusicResults] = useState([]);
+  const [selectedMusic, setSelectedMusic] = useState(null);
+  const [searchingMusic, setSearchingMusic] = useState(false);
 
+  const searchMusic = async (q) => {
+    if (!q||!q.trim()) return;
+    setSearchingMusic(true); setMusicResults([]);
+    try {
+      const r = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=25&media=music`);
+      const d = await r.json();
+      setMusicResults(d.results?.filter(s=>s.previewUrl)||[]);
+    } catch { toast.error('Music search failed'); }
+    finally { setSearchingMusic(false); }
+  };
   const load = async () => {
     try { const r=await api.get('/stories'); setStories(r.data.stories||[]); }
     catch {} finally { setLoading(false); }
@@ -159,13 +174,13 @@ export default function AdminStories() {
         mediaType: media ? media.type : 'text',
         mediaData: media?.url || null,
         mediaMimeType: media?.mimeType || null,
-        audioUrl: audio?.url || null,
-        audioName: audio?.name || null,
+        audioUrl: selectedMusic?.previewUrl || null,
+        audioName: selectedMusic ? `${selectedMusic.trackName} - ${selectedMusic.artistName}` : null,
         text: storyText.trim() || null,
         bgColor,
       });
       toast.success('Story posted! Disappears in 24h');
-      setShowCreate(false); setStoryText(''); setMedia(null); setAudio(null); setBgColor('#6B0F1A');
+      setShowCreate(false); setStoryText(''); setMedia(null); setAudio(null); setBgColor('#6B0F1A'); setSelectedMusic(null); setMusicQuery('');
       load();
     } catch(e) { toast.error(e.response?.data?.error||'Failed to post'); }
     finally { setCreating(false); }
@@ -283,18 +298,57 @@ export default function AdminStories() {
             </div>}
 
             {/* Audio badge */}
-            {audio && <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'rgba(255,255,255,0.05)', borderRadius:10 }}>
-              <span>🎵</span><span style={{ fontSize:13, color:'#E9EDEF', flex:1 }}>{audio.name}</span>
-              <button onClick={()=>setAudio(null)} style={{ background:'none', border:'none', color:'#FC8181', cursor:'pointer', fontSize:16 }}>✕</button>
-            </div>}
+            {selectedMusic && (
+              <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:'rgba(37,211,102,0.08)',border:'1px solid rgba(37,211,102,0.2)',borderRadius:12}}>
+                {selectedMusic.artworkUrl60&&<img src={selectedMusic.artworkUrl60} style={{width:36,height:36,borderRadius:6,objectFit:'cover'}} alt=""/>}
+                <div style={{flex:1,overflow:'hidden'}}>
+                  <div style={{fontSize:13,color:'#E9EDEF',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{selectedMusic.trackName}</div>
+                  <div style={{fontSize:11,color:'#8696A0'}}>{selectedMusic.artistName}</div>
+                </div>
+                <button onClick={()=>setSelectedMusic(null)} style={{background:'none',border:'none',color:'#FC8181',cursor:'pointer',fontSize:16,padding:4}}>✕</button>
+              </div>
+            )}
 
             <div style={{ display:'flex', gap:10 }}>
               <button onClick={()=>fileRef.current?.click()} style={{ flex:1, padding:'12px', background:'#2A3942', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, color:'#E9EDEF', cursor:'pointer', fontSize:13 }}>📎 Photo/Video</button>
-              <button onClick={()=>audioRef.current?.click()} style={{ flex:1, padding:'12px', background:'#2A3942', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, color:'#E9EDEF', cursor:'pointer', fontSize:13 }}>🎵 Add Music</button>
+              <button onClick={()=>setShowMusicSearch(true)} style={{ flex:1, padding:'12px', background:'rgba(37,211,102,0.12)', border:'1px solid rgba(37,211,102,0.25)', borderRadius:12, color:'#25D366', cursor:'pointer', fontSize:13, fontWeight:600 }}>🎵 Add Song</button>
             </div>
             <button onClick={post} disabled={creating||!!uploadProg} style={{ padding:'14px', background:'linear-gradient(135deg,var(--maroon),var(--maroon-light))', border:'none', borderRadius:14, color:'#fff', cursor:'pointer', fontWeight:700, fontSize:15 }}>
               {creating?'Posting...':'🕊 Post Story (24hrs)'}
             </button>
+            {showMusicSearch && (
+              <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.92)',zIndex:600,display:'flex',flexDirection:'column'}}>
+                <div style={{background:'#1F2C34',padding:16,display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
+                  <button onClick={()=>setShowMusicSearch(false)} style={{background:'none',border:'none',color:'#8696A0',fontSize:22,cursor:'pointer'}}>←</button>
+                  <h3 style={{color:'#E9EDEF',fontSize:16,fontWeight:700,flex:1}}>🎵 Search Songs Worldwide</h3>
+                </div>
+                <div style={{padding:'12px 16px',background:'#111B21',flexShrink:0}}>
+                  <div style={{display:'flex',gap:8}}>
+                    <input value={musicQuery} onChange={e=>setMusicQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')searchMusic(musicQuery);}}
+                      placeholder="Search any song or artist..." style={{flex:1,padding:'10px 14px',background:'#2A3942',border:'1px solid rgba(255,255,255,0.08)',borderRadius:10,color:'#E9EDEF',fontSize:14,outline:'none'}}/>
+                    <button onClick={()=>searchMusic(musicQuery)} disabled={searchingMusic} style={{padding:'10px 16px',background:'var(--maroon)',border:'none',borderRadius:10,color:'#fff',cursor:'pointer',fontWeight:700}}>
+                      {searchingMusic?'...':'🔍'}
+                    </button>
+                  </div>
+                </div>
+                <div style={{flex:1,overflowY:'auto',padding:'8px 0'}}>
+                  {searchingMusic&&<div style={{textAlign:'center',padding:30,color:'#8696A0'}}>Searching... 🎵</div>}
+                  {!searchingMusic&&musicResults.length===0&&<div style={{textAlign:'center',padding:30,color:'#8696A0'}}>{musicQuery?'No results found.':'Search any song from anywhere in the world'}</div>}
+                  {musicResults.map(song=>(
+                    <div key={song.trackId} onClick={()=>{setSelectedMusic(song);setShowMusicSearch(false);toast.success(`🎵 ${song.trackName} added!`);}}
+                      style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',borderBottom:'1px solid rgba(255,255,255,0.04)',cursor:'pointer'}}>
+                      {song.artworkUrl60&&<img src={song.artworkUrl60} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0}} alt=""/>}
+                      <div style={{flex:1,overflow:'hidden'}}>
+                        <div style={{fontSize:14,fontWeight:600,color:'#E9EDEF',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{song.trackName}</div>
+                        <div style={{fontSize:12,color:'#8696A0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{song.artistName} · {song.collectionName}</div>
+                        <div style={{fontSize:11,color:'#25D366',marginTop:2}}>🎵 30s preview · {song.primaryGenreName}</div>
+                      </div>
+                      {selectedMusic?.trackId===song.trackId&&<span style={{color:'#25D366',fontSize:18}}>✓</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

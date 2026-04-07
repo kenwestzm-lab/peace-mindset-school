@@ -402,7 +402,7 @@ export default function ParentChat(){
         setMessages(p=>[...p,vOptimistic]);
         toast.success('Voice note sent!',{id:tid});
       }
-    }catch(e){toast.error('Failed to send voice note',{id:tid});}
+    }catch(e){console.error('Voice send error:',e); toast.error('Voice failed: '+( e?.response?.data?.error||e?.message||'Check connection'),{id:tid});}
   };
 
   const cancelRec=()=>{

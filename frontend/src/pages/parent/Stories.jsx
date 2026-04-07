@@ -90,6 +90,15 @@ function StoryViewer({ stories, startIdx, onClose, userId, onLike, onDelete }) {
             <p style={{ fontSize:24, color:'#fff', textAlign:'center', fontWeight:600, lineHeight:1.5, fontFamily:'var(--font-display)' }}>{story.text}</p>
           </div>
         )}
+        {story.audioUrl && <audio src={story.audioUrl} autoPlay loop key={story._id+'_audio'} style={{display:'none'}}/>}
+        {story.audioUrl && story.audioName && (
+          <div style={{position:'absolute',top:8,left:0,right:0,display:'flex',justifyContent:'center'}}>
+            <div style={{background:'rgba(0,0,0,0.6)',backdropFilter:'blur(8px)',padding:'4px 12px',borderRadius:20,display:'flex',alignItems:'center',gap:6}}>
+              <span style={{fontSize:12}}>🎵</span>
+              <span style={{fontSize:11,color:'#fff',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{story.audioName}</span>
+            </div>
+          </div>
+        )}
         {story.text && story.mediaType !== 'text' && (
           <div style={{ position:'absolute', bottom:16, left:0, right:0, padding:'0 20px' }}>
             <p style={{ color:'#fff', textAlign:'center', fontSize:15, background:'rgba(0,0,0,0.5)', padding:'8px 16px', borderRadius:12, backdropFilter:'blur(8px)' }}>{story.text}</p>
@@ -122,7 +131,22 @@ export default function ParentStories() {
   const [storyMedia, setStoryMedia] = useState(null); // { data, type, mimeType, sizeKB }
   const [mediaProgress, setMediaProgress] = useState(null);
   const fileRef = useRef(null);
+  const [showMusicSearch, setShowMusicSearch] = useState(false);
+  const [musicQuery, setMusicQuery] = useState('');
+  const [musicResults, setMusicResults] = useState([]);
+  const [selectedMusic, setSelectedMusic] = useState(null);
+  const [searchingMusic, setSearchingMusic] = useState(false);
 
+  const searchMusic = async (q) => {
+    if (!q || !q.trim()) return;
+    setSearchingMusic(true); setMusicResults([]);
+    try {
+      const r = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=25&media=music`);
+      const d = await r.json();
+      setMusicResults(d.results?.filter(s=>s.previewUrl)||[]);
+    } catch { toast.error('Music search failed'); }
+    finally { setSearchingMusic(false); }
+  };
   const loadStories = async () => {
     try { const r = await api.get('/stories'); setStories(r.data.stories||[]); }
     catch {} finally { setLoading(false); }
@@ -184,9 +208,11 @@ export default function ParentStories() {
         mediaMimeType: storyMedia?.mimeType || null,
         text: storyText.trim() || null,
         bgColor,
+        audioUrl: selectedMusic?.previewUrl || null,
+        audioName: selectedMusic ? `${selectedMusic.trackName} - ${selectedMusic.artistName}` : null,
       });
       toast.success('Story posted! Disappears in 24h');
-      setShowCreate(false); setStoryText(''); setStoryMedia(null); setBgColor('#6B0F1A');
+      setShowCreate(false); setStoryText(''); setStoryMedia(null); setBgColor('#6B0F1A'); setSelectedMusic(null); setMusicQuery('');
       loadStories();
     } catch { toast.error('Failed to post story'); }
     finally { setCreating(false); }
@@ -339,13 +365,66 @@ export default function ParentStories() {
               </div>
             )}
 
+            {selectedMusic && (
+              <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:'rgba(37,211,102,0.08)',border:'1px solid rgba(37,211,102,0.2)',borderRadius:12,marginBottom:4}}>
+                {selectedMusic.artworkUrl60&&<img src={selectedMusic.artworkUrl60} style={{width:36,height:36,borderRadius:6,objectFit:'cover'}} alt=""/>}
+                <div style={{flex:1,overflow:'hidden'}}>
+                  <div style={{fontSize:13,color:'#E9EDEF',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{selectedMusic.trackName}</div>
+                  <div style={{fontSize:11,color:'#8696A0'}}>{selectedMusic.artistName}</div>
+                </div>
+                <button onClick={()=>setSelectedMusic(null)} style={{background:'none',border:'none',color:'#FC8181',cursor:'pointer',fontSize:16,padding:4}}>✕</button>
+              </div>
+            )}
             <div style={{ display:'flex', gap:10 }}>
               <button onClick={()=>fileRef.current?.click()} style={{ flex:1, padding:'12px', background:'#2A3942', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, color:'#E9EDEF', cursor:'pointer', fontSize:14 }}>📎 Add Media</button>
-              <button onClick={postStory} disabled={creating||mediaProgress!==null} style={{ flex:2, padding:'12px', background:'linear-gradient(135deg,#00A884,#128C7E)', border:'none', borderRadius:12, color:'#fff', cursor:'pointer', fontWeight:700, fontSize:14 }}>
+              <button onClick={()=>setShowMusicSearch(true)} style={{ flex:1, padding:'12px', background:'rgba(37,211,102,0.12)', border:'1px solid rgba(37,211,102,0.25)', borderRadius:12, color:'#25D366', cursor:'pointer', fontSize:14, fontWeight:600 }}>🎵 Add Song</button>
+            </div>
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={postStory} disabled={creating||mediaProgress!==null} style={{ flex:1, padding:'12px', background:'linear-gradient(135deg,#00A884,#128C7E)', border:'none', borderRadius:12, color:'#fff', cursor:'pointer', fontWeight:700, fontSize:14 }}>
                 {creating ? 'Posting...' : '🕊 Post Story'}
               </button>
             </div>
             <p style={{ fontSize:11, color:'#8696A0', textAlign:'center', marginTop:10 }}>Stories disappear automatically after 24 hours</p>
+            {/* Music Search Modal */}
+            {showMusicSearch && (
+              <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.9)',zIndex:600,display:'flex',flexDirection:'column'}}>
+                <div style={{background:'#1F2C34',padding:16,display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
+                  <button onClick={()=>setShowMusicSearch(false)} style={{background:'none',border:'none',color:'#8696A0',fontSize:22,cursor:'pointer'}}>←</button>
+                  <h3 style={{color:'#E9EDEF',fontSize:16,fontWeight:700,flex:1}}>🎵 Search Songs</h3>
+                </div>
+                <div style={{padding:'12px 16px',background:'#111B21',flexShrink:0}}>
+                  <div style={{display:'flex',gap:8}}>
+                    <input
+                      value={musicQuery}
+                      onChange={e=>setMusicQuery(e.target.value)}
+                      onKeyDown={e=>{if(e.key==='Enter')searchMusic(musicQuery);}}
+                      placeholder="Search any song or artist worldwide..."
+                      style={{flex:1,padding:'10px 14px',background:'#2A3942',border:'1px solid rgba(255,255,255,0.08)',borderRadius:10,color:'#E9EDEF',fontSize:14,outline:'none'}}
+                    />
+                    <button onClick={()=>searchMusic(musicQuery)} disabled={searchingMusic} style={{padding:'10px 16px',background:'#00A884',border:'none',borderRadius:10,color:'#fff',cursor:'pointer',fontWeight:700,fontSize:14}}>
+                      {searchingMusic?'...':'🔍'}
+                    </button>
+                  </div>
+                </div>
+                <div style={{flex:1,overflowY:'auto',padding:'8px 0'}}>
+                  {searchingMusic && <div style={{textAlign:'center',padding:30,color:'#8696A0'}}>Searching worldwide music... 🎵</div>}
+                  {!searchingMusic && musicResults.length===0 && musicQuery && <div style={{textAlign:'center',padding:30,color:'#8696A0'}}>No results. Try another song or artist.</div>}
+                  {!searchingMusic && musicResults.length===0 && !musicQuery && <div style={{textAlign:'center',padding:30,color:'#8696A0'}}>Search any song, artist, or album from anywhere in the world</div>}
+                  {musicResults.map(song=>(
+                    <div key={song.trackId} onClick={()=>{setSelectedMusic(song);setShowMusicSearch(false);toast.success(`🎵 ${song.trackName} added!`);}}
+                      style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',borderBottom:'1px solid rgba(255,255,255,0.04)',cursor:'pointer',active:{background:'rgba(255,255,255,0.05)'}}}>
+                      {song.artworkUrl60&&<img src={song.artworkUrl60} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0}} alt=""/>}
+                      <div style={{flex:1,overflow:'hidden'}}>
+                        <div style={{fontSize:14,fontWeight:600,color:'#E9EDEF',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{song.trackName}</div>
+                        <div style={{fontSize:12,color:'#8696A0',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{song.artistName} · {song.collectionName}</div>
+                        <div style={{fontSize:11,color:'#25D366',marginTop:2}}>🎵 30s preview · {song.primaryGenreName}</div>
+                      </div>
+                      {selectedMusic?.trackId===song.trackId && <span style={{color:'#25D366',fontSize:18}}>✓</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -6,6 +6,14 @@ import toast from 'react-hot-toast';
 
 const fmtDate = d => d ? new Date(d).toLocaleDateString('en-ZM',{day:'numeric',month:'long',year:'numeric'}) : '';
 const isPast  = d => d && new Date(d) < new Date();
+const fmtCountdown = d => {
+  if (!d) return '';
+  const diff = new Date(d) - Date.now();
+  if (diff <= 0) return '⏰ Expired';
+  const h = Math.floor(diff/3600000), m = Math.floor((diff%3600000)/60000);
+  if (h > 48) return '';
+  return h > 0 ? `⏳ ${h}h ${m}m left` : `⏳ ${m}m left`;
+};
 
 const EMPTY = { title:'', titleFr:'', description:'', descriptionFr:'', eventDate:'', paymentRequired:false, paymentAmount:'' };
 
