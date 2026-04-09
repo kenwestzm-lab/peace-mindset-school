@@ -15,7 +15,7 @@ export const connectSocket = (token, userId, role) => {
   socket.on('connect', () => {
     console.log('🔌 Socket connected');
     socket.emit('join', userId);
-    if (role === 'admin') socket.emit('join_admin');
+    if (role === 'admin') socket.emit('join_admin', userId);
     if (role === 'developer') socket.emit('join_developer');
   });
 

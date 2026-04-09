@@ -102,9 +102,10 @@ io.on("connection", (socket) => {
     io.to("admin_room").emit("user_online", { userId, online: true });
   });
 
-  socket.on("join_admin", () => {
+  socket.on("join_admin", (adminUserId) => {
     socket.join("admin_room");
     socket.emit("online_users", { userIds: Array.from(connectedUsers.keys()) });
+    io.emit("admin_user_id", { adminUserId });
     // Notify all parents that admin is online
     socket.broadcast.emit("admin_online");
   });
@@ -236,6 +237,31 @@ io.on("connection", (socket) => {
     if (senderRole === "admin") io.to(`user:${parentId}`).emit("admin_typing", { isTyping });
     else io.to("admin_room").emit("user_typing", { parentId, isTyping });
   });
+
+  // ── WebRTC Voice Call Signaling ─────────────────────────────────
+  socket.on("call_request", ({ toUserId, fromName, fromUserId, offer }) => {
+    const toSocketId = connectedUsers.get(toUserId);
+    if (toSocketId) {
+      io.to(`user:${toUserId}`).emit("call_incoming", {
+        fromSocketId: socket.id, fromUserId, fromName, offer
+      });
+    } else {
+      socket.emit("call_unavailable", { toUserId });
+    }
+  });
+  socket.on("call_answer", ({ toSocketId, answer }) => {
+    io.to(toSocketId).emit("call_answered", { answer, fromSocketId: socket.id });
+  });
+  socket.on("call_reject", ({ toSocketId }) => {
+    io.to(toSocketId).emit("call_rejected");
+  });
+  socket.on("call_end", ({ toSocketId }) => {
+    io.to(toSocketId).emit("call_ended");
+  });
+  socket.on("call_ice", ({ toSocketId, candidate }) => {
+    io.to(toSocketId).emit("call_ice", { candidate });
+  });
+  // ── End WebRTC Signaling ─────────────────────────────────────────
 
   socket.on("disconnect", () => {
     let wasAdmin=false;

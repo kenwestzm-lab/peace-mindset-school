@@ -721,7 +721,11 @@ export default function AdminChat() {
   );
 
   /* ─── DM panel ─── */
-  if (panel === 'dm' && selParent) return (
+  // ── Voice Call Overlays ──
+  if (activeCall) return <OutgoingCall toUserId={activeCall.toUserId} toName={activeCall.toName} myName={user?.name||'Admin'} myUserId={user?._id} onEnd={()=>setActiveCall(null)}/>;
+  if (incomingCall) return <IncomingCall fromSocketId={incomingCall.fromSocketId} fromName={incomingCall.fromName} offer={incomingCall.offer} onEnd={()=>setIncomingCall(null)}/>;
+
+    if (panel === 'dm' && selParent) return (
     <div style={root}>
       {viewPic && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.95)',zIndex:99999,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}} onClick={()=>setViewPic(null)}>
@@ -737,6 +741,12 @@ export default function AdminChat() {
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 15, fontWeight: 600 }}>{selParent.name}</div>
           {parentTyping[selParent._id] ? <div style={{ fontSize: 12, color: '#00A884' }}>typing...</div> : <div style={{ fontSize: 12, color: '#8696A0' }}>Parent</div>}
+        </div>
+        <button onClick={()=>setActiveCall({toUserId:selParent._id,toName:selParent.name})} title="Voice Call"
+          style={{width:38,height:38,borderRadius:'50%',background:'rgba(0,168,132,0.15)',border:'1px solid rgba(0,168,132,0.3)',color:'#00A884',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          📞
+        </button>
+
         </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '6px 0 4px' }}>
