@@ -746,8 +746,6 @@ export default function AdminChat() {
           style={{width:38,height:38,borderRadius:'50%',background:'rgba(0,168,132,0.15)',border:'1px solid rgba(0,168,132,0.3)',color:'#00A884',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
           📞
         </button>
-
-        </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '6px 0 4px' }}>
         {messages.length === 0 && <div style={{ textAlign: 'center', padding: '60px 20px', color: '#8696A0' }}><div style={{ fontSize: 48, marginBottom: 10 }}>💬</div><div>No messages yet</div></div>}
