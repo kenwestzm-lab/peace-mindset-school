@@ -233,6 +233,9 @@ export default function ParentChat(){
   const [adminTyping,setAdminTyping]=useState(false);
   const [adminOnline,setAdminOnline]=useState(false);
   const [recording,setRecording]=useState(false);
+  const [activeCall,setActiveCall]=useState(null);
+  const [incomingCall,setIncomingCall]=useState(null);
+  const [adminUserId,setAdminUserId]=useState(null);
   const [uploading,setUploading]=useState(false);
   const [menu,setMenu]=useState(null);
   const [unread,setUnread]=useState(0);
