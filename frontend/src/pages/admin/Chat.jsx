@@ -722,8 +722,8 @@ export default function AdminChat() {
 
   /* ─── DM panel ─── */
   // ── Voice Call Overlays ──
-  if (activeCall) return <OutgoingCall toUserId={activeCall.toUserId} toName={activeCall.toName} myName={user?.name||'Admin'} myUserId={user?._id} onEnd={()=>setActiveCall(null)}/>;
-  if (incomingCall) return <IncomingCall fromSocketId={incomingCall.fromSocketId} fromName={incomingCall.fromName} offer={incomingCall.offer} onEnd={()=>setIncomingCall(null)}/>;
+  if (activeCall) return null;
+  if (incomingCall) return null;
 
     if (panel === 'dm' && selParent) return (
     <div style={root}>
