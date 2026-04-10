@@ -233,9 +233,6 @@ export default function ParentChat(){
   const [adminTyping,setAdminTyping]=useState(false);
   const [adminOnline,setAdminOnline]=useState(false);
   const [recording,setRecording]=useState(false);
-  const [activeCall,setActiveCall]=useState(null);
-  const [incomingCall,setIncomingCall]=useState(null);
-  const [adminUserId,setAdminUserId]=useState(null);
   const [uploading,setUploading]=useState(false);
   const [menu,setMenu]=useState(null);
   const [unread,setUnread]=useState(0);
@@ -304,8 +301,6 @@ export default function ParentChat(){
     });
     socket.on('new_story',loadStories);socket.on('stories_expired',loadStories);
     socket.on('admin_online',()=>setAdminOnline(true));socket.on('admin_offline',()=>setAdminOnline(false));
-    socket.on('call_incoming',(data)=>setIncomingCall(data));
-    socket.on('admin_user_id',({adminUserId:id})=>setAdminUserId(id));
     return()=>{
       socket.off('new_message',onMsg);socket.off('admin_typing',onTyping);socket.off('message_deleted',onDel);
       socket.off('message_reaction',onReact);socket.off('new_group_message',onGrpMsg);
@@ -485,8 +480,6 @@ export default function ParentChat(){
     );
   };
 
-  if(activeCall) return null;
-  if(incomingCall) return null;
 
   if(view==='updates')return(
     <div style={root}>
@@ -569,10 +562,6 @@ export default function ParentChat(){
           <div style={{fontSize:15,fontWeight:600}}>School Admin</div>
           {adminTyping?<div style={{fontSize:12,color:'#00A884'}}>typing…</div>:adminOnline?<div style={{fontSize:12,color:'#25D366'}}>Online</div>:<div style={{fontSize:12,color:'#8696A0'}}>Peace Mindset Private School</div>}
         </div>
-        <button onClick={()=>adminUserId?setActiveCall({toUserId:adminUserId,toName:'Peace Mindset School'}):toast.error('School is offline')} title="Voice Call"
-          style={{width:38,height:38,borderRadius:'50%',background:'rgba(0,168,132,0.15)',border:'1px solid rgba(0,168,132,0.3)',color:'#00A884',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-          📞
-        </button>
       </div>
       <div style={{flex:1,overflowY:'auto',padding:'6px 0 4px',WebkitOverflowScrolling:'touch'}}>
         {messages.length===0&&<div style={{textAlign:'center',padding:'60px 20px',color:'#8696A0'}}><div style={{fontSize:48,marginBottom:10}}>💬</div><div>Send a message to the school admin</div></div>}
