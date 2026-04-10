@@ -722,8 +722,6 @@ export default function AdminChat() {
 
   /* ─── DM panel ─── */
   // ── Voice Call Overlays ──
-  if (activeCall) return null;
-  if (incomingCall) return null;
 
     if (panel === 'dm' && selParent) return (
     <div style={root}>
@@ -742,10 +740,6 @@ export default function AdminChat() {
           <div style={{ fontSize: 15, fontWeight: 600 }}>{selParent.name}</div>
           {parentTyping[selParent._id] ? <div style={{ fontSize: 12, color: '#00A884' }}>typing...</div> : <div style={{ fontSize: 12, color: '#8696A0' }}>Parent</div>}
         </div>
-        <button onClick={()=>setActiveCall({toUserId:selParent._id,toName:selParent.name})} title="Voice Call"
-          style={{width:38,height:38,borderRadius:'50%',background:'rgba(0,168,132,0.15)',border:'1px solid rgba(0,168,132,0.3)',color:'#00A884',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-          📞
-        </button>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '6px 0 4px' }}>
         {messages.length === 0 && <div style={{ textAlign: 'center', padding: '60px 20px', color: '#8696A0' }}><div style={{ fontSize: 48, marginBottom: 10 }}>💬</div><div>No messages yet</div></div>}
