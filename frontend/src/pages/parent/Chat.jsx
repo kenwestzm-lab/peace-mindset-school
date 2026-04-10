@@ -571,6 +571,10 @@ export default function ParentChat(){
           <div style={{fontSize:15,fontWeight:600}}>School Admin</div>
           {adminTyping?<div style={{fontSize:12,color:'#00A884'}}>typing…</div>:adminOnline?<div style={{fontSize:12,color:'#25D366'}}>Online</div>:<div style={{fontSize:12,color:'#8696A0'}}>Peace Mindset Private School</div>}
         </div>
+        <button onClick={()=>adminUserId?setActiveCall({toUserId:adminUserId,toName:'School Admin'}):toast.error('School is offline')}
+          style={{width:40,height:40,borderRadius:'50%',background:'rgba(0,168,132,0.15)',border:'1px solid rgba(0,168,132,0.3)',color:'#00A884',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          &#128222;
+        </button>
       </div>
       <div style={{flex:1,overflowY:'auto',padding:'6px 0 4px',WebkitOverflowScrolling:'touch'}}>
         {messages.length===0&&<div style={{textAlign:'center',padding:'60px 20px',color:'#8696A0'}}><div style={{fontSize:48,marginBottom:10}}>💬</div><div>Send a message to the school admin</div></div>}
