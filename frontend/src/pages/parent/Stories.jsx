@@ -45,8 +45,25 @@ function StoryViewer({ stories, startIdx, onClose, userId, onLike, onDelete }) {
 
   if (!story) return null;
 
+  // Audio player for story music - plays for ALL viewers
+  const storyDuration = story.mediaType === 'video' ? 15 : 5;
+
   return (
     <div style={{ position:'fixed', inset:0, background:'#000', zIndex:9999, display:'flex', flexDirection:'column' }}>
+      {story.audioUrl && (
+        <audio
+          key={story._id + '_music'}
+          src={story.audioUrl}
+          autoPlay
+          loop={false}
+          style={{display:'none'}}
+          onLoadedMetadata={e => {
+            // Trim: only play for story duration
+            e.target.currentTime = 0;
+            setTimeout(() => { try { e.target.pause(); } catch {} }, storyDuration * 1000);
+          }}
+        />
+      )}
       {/* Progress bars */}
       <div style={{ display:'flex', gap:3, padding:'12px 12px 0', flexShrink:0 }}>
         {stories.map((_, i) => (
@@ -63,7 +80,10 @@ function StoryViewer({ stories, startIdx, onClose, userId, onLike, onDelete }) {
         </div>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:14, fontWeight:600, color:'#fff' }}>{story.author?.name}</div>
-          <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)' }}>{timeLeft(story.expiresAt)}</div>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)', display:'flex', alignItems:'center', gap:4 }}>
+            {story.audioName && <span>🎵 {story.audioName.split(' - ')[0].substring(0,20)}</span>}
+            {!story.audioName && timeLeft(story.expiresAt)}
+          </div>
         </div>
         {isMyStory && (
           <button onClick={() => { onDelete(story._id); onClose(); }} style={{ background:'rgba(239,68,68,0.2)', border:'1px solid rgba(239,68,68,0.4)', color:'#FC8181', borderRadius:8, padding:'5px 10px', cursor:'pointer', fontSize:12 }}>🗑</button>
@@ -412,7 +432,7 @@ export default function ParentStories() {
                   {!searchingMusic && musicResults.length===0 && !musicQuery && <div style={{textAlign:'center',padding:30,color:'#8696A0'}}>Search any song, artist, or album from anywhere in the world</div>}
                   {musicResults.map(song=>(
                     <div key={song.trackId} onClick={()=>{setSelectedMusic(song);setShowMusicSearch(false);toast.success(`🎵 ${song.trackName} added!`);}}
-                      style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',borderBottom:'1px solid rgba(255,255,255,0.04)',cursor:'pointer',active:{background:'rgba(255,255,255,0.05)'}}}>
+                      style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',borderBottom:'1px solid rgba(255,255,255,0.04)',cursor:'pointer'}}>
                       {song.artworkUrl60&&<img src={song.artworkUrl60} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0}} alt=""/>}
                       <div style={{flex:1,overflow:'hidden'}}>
                         <div style={{fontSize:14,fontWeight:600,color:'#E9EDEF',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{song.trackName}</div>

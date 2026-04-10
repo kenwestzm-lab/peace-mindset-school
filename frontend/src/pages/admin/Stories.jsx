@@ -57,7 +57,9 @@ function StoryViewer({ stories, startIdx, onClose, userId, onLike, onDelete }) {
         </div>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:14, fontWeight:600, color:'#fff' }}>{story.author?.name}</div>
-          <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)' }}>{timeLeft(story.expiresAt)}</div>
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)' }}>
+            {story.audioName ? '🎵 '+story.audioName.split(' - ')[0].substring(0,25) : timeLeft(story.expiresAt)}
+          </div>
         </div>
         {isMyStory && <button onClick={()=>{onDelete(story._id);onClose();}} style={{ background:'rgba(239,68,68,0.2)', border:'1px solid rgba(239,68,68,0.4)', color:'#FC8181', borderRadius:8, padding:'5px 10px', cursor:'pointer', fontSize:12 }}>🗑 Delete</button>}
         <button onClick={onClose} style={{ background:'none', border:'none', color:'rgba(255,255,255,0.7)', fontSize:24, cursor:'pointer', padding:4 }}>✕</button>
@@ -74,7 +76,13 @@ function StoryViewer({ stories, startIdx, onClose, userId, onLike, onDelete }) {
         {story.mediaType==='text'&&<div style={{ width:'100%', height:'80vh', background:story.bgColor||'#6B0F1A', display:'flex', alignItems:'center', justifyContent:'center', padding:40 }}>
           <p style={{ fontSize:26, color:'#fff', textAlign:'center', fontWeight:600, lineHeight:1.5 }}>{story.text}</p>
         </div>}
-        {story.audioUrl&&story.mediaType!=='text'&&<audio src={story.audioUrl} autoPlay loop style={{ display:'none' }}/>}
+        {story.audioUrl && (
+        <audio key={story._id+'_music'} src={story.audioUrl} autoPlay style={{display:'none'}}
+          onLoadedMetadata={e=>{
+            const dur = story.mediaType==='video'?15:6;
+            setTimeout(()=>{try{e.target.pause();}catch{}}, dur*1000);
+          }}/>
+      )}
         {story.text&&story.mediaType!=='text'&&<div style={{ position:'absolute', bottom:16, left:0, right:0, padding:'0 20px' }}>
           <p style={{ color:'#fff', textAlign:'center', fontSize:15, background:'rgba(0,0,0,0.5)', padding:'8px 16px', borderRadius:12 }}>{story.text}</p>
         </div>}
