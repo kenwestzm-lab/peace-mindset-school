@@ -482,8 +482,8 @@ export default function ParentChat(){
     );
   };
 
-  if(activeCall) return null;
-  if(incomingCall) return null;
+  if(activeCall) return <OutgoingCall toUserId={activeCall.toUserId} toName={activeCall.toName} myName={user?.name||'Parent'} myUserId={user?._id} onEnd={()=>setActiveCall(null)}/>;
+  if(incomingCall) return <IncomingCall fromSocketId={incomingCall.fromSocketId} fromName={incomingCall.fromName} offer={incomingCall.offer} onEnd={()=>setIncomingCall(null)}/>;
 
   if(view==='updates')return(
     <div style={root}>
