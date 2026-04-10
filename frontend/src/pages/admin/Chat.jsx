@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { OutgoingCall, IncomingCall } from '../../components/VoiceCall';
 import api from '../../utils/api';
 import { getSocket } from '../../utils/socket';
 import { useStore } from '../../store/useStore';
@@ -470,6 +471,8 @@ export default function AdminChat() {
   const [myStories, setMyStories] = useState([]);
   const [storyViewer, setStoryViewer] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [activeCall, setActiveCall] = useState(null);
+  const [incomingCall, setIncomingCall] = useState(null);
 
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
@@ -506,6 +509,13 @@ export default function AdminChat() {
 
   useEffect(() => { loadParents(); loadGroups(); loadStories(); }, []);
   useEffect(() => { if (selParent) loadMessages(selParent._id); }, [selParent]);
+  useEffect(() => {
+    const s = getSocket();
+    if (!s) return;
+    const fn = d => setIncomingCall(d);
+    s.on('call_incoming', fn);
+    return () => s.off('call_incoming', fn);
+  }, []);
 
   /* ── Socket events ── */
   useEffect(() => {
@@ -723,7 +733,10 @@ export default function AdminChat() {
   /* ─── DM panel ─── */
   // ── Voice Call Overlays ──
 
-    if (panel === 'dm' && selParent) return (
+    if (activeCall) return <OutgoingCall toUserId={activeCall.toUserId} toName={activeCall.toName} myName={user?.name||'Admin'} myUserId={user?._id} onEnd={()=>setActiveCall(null)}/>;
+  if (incomingCall) return <IncomingCall fromSocketId={incomingCall.fromSocketId} fromName={incomingCall.fromName} offer={incomingCall.offer} onEnd={()=>setIncomingCall(null)}/>;
+
+  if (panel === 'dm' && selParent) return (
     <div style={root}>
       {viewPic && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.95)',zIndex:99999,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}} onClick={()=>setViewPic(null)}>

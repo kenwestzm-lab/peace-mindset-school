@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { OutgoingCall, IncomingCall } from '../../components/VoiceCall';
 import api from '../../utils/api';
 import { getSocket } from '../../utils/socket';
 import { useStore } from '../../store/useStore';
@@ -243,6 +244,9 @@ export default function ParentChat(){
   const [myStories,setMyStories]=useState([]);
   const [storyViewer,setStoryViewer]=useState(null);
   const [showCreate,setShowCreate]=useState(false);
+  const [activeCall,setActiveCall]=useState(null);
+  const [incomingCall,setIncomingCall]=useState(null);
+  const [adminUserId,setAdminUserId]=useState(null);
   const bottomRef=useRef(null);
   const fileRef=useRef(null);
   const grpFileRef=useRef(null);
@@ -301,6 +305,8 @@ export default function ParentChat(){
     });
     socket.on('new_story',loadStories);socket.on('stories_expired',loadStories);
     socket.on('admin_online',()=>setAdminOnline(true));socket.on('admin_offline',()=>setAdminOnline(false));
+    socket.on('call_incoming',d=>setIncomingCall(d));
+    socket.on('admin_user_id',({adminUserId:id})=>setAdminUserId(id));
     return()=>{
       socket.off('new_message',onMsg);socket.off('admin_typing',onTyping);socket.off('message_deleted',onDel);
       socket.off('message_reaction',onReact);socket.off('new_group_message',onGrpMsg);
@@ -480,6 +486,9 @@ export default function ParentChat(){
     );
   };
 
+
+  if(activeCall) return <OutgoingCall toUserId={activeCall.toUserId} toName={activeCall.toName} myName={user?.name||'Parent'} myUserId={user?._id} onEnd={()=>setActiveCall(null)}/>;
+  if(incomingCall) return <IncomingCall fromSocketId={incomingCall.fromSocketId} fromName={incomingCall.fromName} offer={incomingCall.offer} onEnd={()=>setIncomingCall(null)}/>;
 
   if(view==='updates')return(
     <div style={root}>
