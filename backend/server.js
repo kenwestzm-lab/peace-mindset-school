@@ -245,6 +245,11 @@ io.on("connection", (socket) => {
       io.to(`user:${toUserId}`).emit("call_incoming", {
         fromSocketId: socket.id, fromUserId, fromName, offer
       });
+      // Auto-timeout: if no answer in 30s, notify caller
+      setTimeout(() => {
+        const stillOnline = connectedUsers.get(toUserId);
+        if (stillOnline) socket.emit("call_no_answer", { toUserId, fromName: fromName });
+      }, 30000);
     } else {
       socket.emit("call_unavailable", { toUserId });
     }

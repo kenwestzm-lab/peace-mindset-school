@@ -391,7 +391,7 @@ export default function ParentChat(){
       try{const resp=await api.post('/media/upload',{mediaData:b64,mimeType:recMimeRef.current,folder:'peace-mindset/voice'});url=resp.data.url;}catch(uploadErr){console.warn('Cloudinary down, sending base64');}
       const socket=getSocket();if(!socket){toast.error('Not connected',{id:tid});return;}
       // Calculate actual duration from recorded blob
-      let voiceDuration = secs || 0;
+      let voiceDuration = 0;
       try {
         const tmpAudio = new Audio(url);
         await new Promise(res => { tmpAudio.onloadedmetadata = () => { if(isFinite(tmpAudio.duration)) voiceDuration = Math.round(tmpAudio.duration); res(); }; tmpAudio.onerror = res; setTimeout(res, 2000); });
