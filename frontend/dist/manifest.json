@@ -1,0 +1,21 @@
+{
+  "name": "Peace Mindset Private School",
+  "short_name": "Peace Mindset",
+  "description": "Peace Mindset Private School - Better Education",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111B21",
+  "theme_color": "#9B1826",
+  "orientation": "portrait",
+  "scope": "/",
+  "icons": [
+    { "src": "/logo192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/logo512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "screenshots": [
+    { "src": "/logo512.png", "sizes": "512x512", "type": "image/png", "form_factor": "narrow" }
+  ],
+  "categories": ["education"],
+  "lang": "en",
+  "prefer_related_applications": false
+}

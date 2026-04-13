@@ -1,120 +1,93 @@
+const CACHE = 'peace-mindset-v1';
+const OFFLINE_URL = '/offline.html';
 
-// Peace Mindset School - Service Worker v3
-// Fast loading + Full Offline Support
-
-const CACHE_NAME = 'peace-mindset-v3';
-const VOICE_CACHE = 'peace-mindset-voice-v1';
-const IMG_CACHE   = 'peace-mindset-img-v1';
-
-const STATIC_ASSETS = [
-  '/', '/index.html', '/logo.webp', '/manifest.json',
+// Assets to cache immediately
+const PRE_CACHE = [
+  '/',
+  '/manifest.json',
+  '/offline.html',
 ];
 
-// Install — cache everything
+// Install - cache core assets
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE_NAME).then(c => c.addAll(STATIC_ASSETS).catch(()=>{}))
+    caches.open(CACHE).then(c => c.addAll(PRE_CACHE)).then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
-// Activate — clean old caches
+// Activate - clean old caches
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => ![CACHE_NAME,VOICE_CACHE,IMG_CACHE].includes(k)).map(k => caches.delete(k)))
-    )
+      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Fetch strategy
+// Fetch - network first, fallback to cache
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
-  const url = e.request.url;
+  if (e.request.url.includes('/api/')) return; // Never cache API
 
-  // Voice messages — cache-first (works offline!)
-  if (url.includes('/voice/') || url.includes('audio') || url.match(/\.(webm|mp3|ogg|m4a)$/)) {
-    e.respondWith(
-      caches.open(VOICE_CACHE).then(async cache => {
-        const hit = await cache.match(e.request);
-        if (hit) return hit;
-        try {
-          const res = await fetch(e.request);
-          if (res.ok) cache.put(e.request, res.clone());
-          return res;
-        } catch { return hit || new Response('', { status: 503 }); }
-      })
-    );
-    return;
-  }
-
-  // Images — cache-first
-  if (url.match(/\.(jpg|jpeg|png|webp|gif|svg)$/) || url.includes('cloudinary')) {
-    e.respondWith(
-      caches.open(IMG_CACHE).then(async cache => {
-        const hit = await cache.match(e.request);
-        if (hit) return hit;
-        try {
-          const res = await fetch(e.request);
-          if (res.ok) cache.put(e.request, res.clone());
-          return res;
-        } catch { return hit || new Response('', { status: 503 }); }
-      })
-    );
-    return;
-  }
-
-  // API — network only (no cache for fresh data)
-  if (url.includes('/api/') || url.includes('socket.io')) return;
-
-  // JS/CSS assets — cache-first for instant load
-  if (url.includes('/assets/')) {
-    e.respondWith(
-      caches.open(CACHE_NAME).then(async cache => {
-        const hit = await cache.match(e.request);
-        if (hit) return hit;
-        try {
-          const res = await fetch(e.request);
-          if (res.ok) cache.put(e.request, res.clone());
-          return res;
-        } catch { return hit || new Response('', { status: 503 }); }
-      })
-    );
-    return;
-  }
-
-  // Everything else — network first, cache fallback
   e.respondWith(
     fetch(e.request)
       .then(res => {
         if (res.ok) {
           const clone = res.clone();
-          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+          caches.open(CACHE).then(c => c.put(e.request, clone));
         }
         return res;
       })
-      .catch(() => caches.match(e.request).then(hit => hit || caches.match('/')))
+      .catch(() => caches.match(e.request).then(cached => cached || caches.match(OFFLINE_URL)))
   );
 });
 
 // Push notifications
 self.addEventListener('push', e => {
-  let data = {};
-  try { data = e.data?.json() || {}; } catch {}
+  const data = e.data ? e.data.json() : {};
+  const title = data.title || 'Peace Mindset School';
+  const options = {
+    body: data.body || 'You have a new notification',
+    icon: '/logo192.png',
+    badge: '/logo192.png',
+    tag: data.tag || 'default',
+    data: { url: data.url || '/' },
+    requireInteraction: data.requireInteraction || false,
+    vibrate: [200, 100, 200],
+    actions: data.actions || [],
+  };
+  e.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Notification click
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = e.notification.data?.url || '/';
   e.waitUntil(
-    self.registration.showNotification(data.title || 'Peace Mindset', {
-      body: data.body || '',
-      icon: '/logo.webp',
-      badge: '/logo.webp',
-      data: { url: data.url || '/' },
-      vibrate: [200, 100, 200],
-      requireInteraction: false,
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cls => {
+      const existing = cls.find(c => c.url.includes(self.location.origin));
+      if (existing) { existing.focus(); existing.navigate(url); }
+      else clients.openWindow(url);
     })
   );
 });
 
-self.addEventListener('notificationclick', e => {
-  e.notification.close();
-  e.waitUntil(clients.openWindow(e.notification.data?.url || '/'));
+// Background sync for offline messages
+self.addEventListener('sync', e => {
+  if (e.tag === 'sync-messages') {
+    e.waitUntil(syncOfflineMessages());
+  }
 });
+
+async function syncOfflineMessages() {
+  // Sync any queued offline messages when back online
+  const cache = await caches.open('offline-messages');
+  const keys = await cache.keys();
+  for (const req of keys) {
+    try {
+      const data = await cache.match(req).then(r => r.json());
+      await fetch('/api/chat', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+      await cache.delete(req);
+    } catch {}
+  }
+}
