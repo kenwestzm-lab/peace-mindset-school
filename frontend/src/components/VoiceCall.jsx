@@ -2,6 +2,32 @@ import { useState, useEffect, useRef } from 'react';
 import { getSocket } from '../utils/socket';
 import toast from 'react-hot-toast';
 
+// Show browser notification for incoming call
+async function showCallNotification(fromName) {
+  try {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+      await Notification.requestPermission();
+    }
+    if (Notification.permission === 'granted') {
+      const n = new Notification('📞 Incoming Call', {
+        body: fromName + ' is calling you...',
+        icon: '/favicon.ico',
+        badge: '/favicon.ico',
+        tag: 'incoming-call',
+        requireInteraction: true,
+        vibrate: [200, 100, 200, 100, 200],
+        silent: false,
+      });
+      n.onclick = () => { window.focus(); n.close(); };
+      // Auto close after 35s
+      setTimeout(() => n.close(), 35000);
+      return n;
+    }
+  } catch(e) { console.warn('Notification error:', e); }
+  return null;
+}
+
 const ICE = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -14,6 +40,17 @@ const ICE = {
 };
 
 const AUDIO_C = { audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true, sampleRate:48000 }, video:false };
+
+// Get mic with retry - releases any locked streams first
+async function getMic() {
+  // First stop any existing streams that might be locking the mic
+  try {
+    const existing = await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+    existing.getTracks().forEach(t => t.stop());
+  } catch {}
+  await new Promise(r => setTimeout(r, 300));
+  return navigator.mediaDevices.getUserMedia(AUDIO_C);
+}
 const VIDEO_C = { audio: { echoCancellation:true, noiseSuppression:true }, video: { width:{ideal:1280}, height:{ideal:720}, facingMode:'user' } };
 
 function makeRingtone() {
@@ -249,7 +286,7 @@ export function OutgoingCall({toUserId, toName, toProfilePic, myName, myUserId, 
     if(!s){toast.error('Not connected');onEnd();return;}
     (async()=>{
       try{
-        const stream=await navigator.mediaDevices.getUserMedia(AUDIO_C);
+        const stream=await getMic();
         localStreamRef.current=stream;
         const pc=new RTCPeerConnection(ICE);
         pcRef.current=pc;
@@ -325,7 +362,7 @@ export function IncomingCall({fromSocketId, fromName, fromProfilePic, offer, onE
   const end = (skipEmit=false) => {
     if(ended.current) return; ended.current=true;
     clearInterval(timerRef.current);
-    try{ringRef.current?.stop();}catch{}
+    try{ringRef.current?.stop();ringRef.current?._notif?.close();}catch{}
     try{localStreamRef.current?.getTracks().forEach(t=>t.stop());}catch{}
     try{videoStreamRef.current?.getTracks().forEach(t=>t.stop());}catch{}
     try{pcRef.current?.close();}catch{}
@@ -369,11 +406,11 @@ export function IncomingCall({fromSocketId, fromName, fromProfilePic, offer, onE
   };
 
   const accept = async () => {
-    try{ringRef.current?.stop();}catch{}
+    try{ringRef.current?.stop();ringRef.current?._notif?.close();}catch{}
     setRinging(false); setStatus('Connecting...');
     const s=getSocket();
     try{
-      const stream=await navigator.mediaDevices.getUserMedia(AUDIO_C);
+      const stream=await getMic();
       localStreamRef.current=stream;
       const pc=new RTCPeerConnection(ICE);
       pcRef.current=pc;
@@ -404,6 +441,8 @@ export function IncomingCall({fromSocketId, fromName, fromProfilePic, offer, onE
 
   useEffect(()=>{
     ringRef.current=makeRingtone();
+    // Show push notification
+    showCallNotification(fromName).then(n => { if(n) ringRef.current._notif=n; });
     const s=getSocket();
     const onIce=async({candidate})=>{
       try{if(pcRef.current?.remoteDescription)await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));else pending.current.push(candidate);}catch{}

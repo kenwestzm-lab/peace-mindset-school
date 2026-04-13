@@ -512,7 +512,15 @@ export default function AdminChat() {
   useEffect(() => {
     const s = getSocket();
     if (!s) return;
-    const fn = d => setIncomingCall(d);
+    const fn = d => {
+      setIncomingCall(d);
+      if(document.hidden && 'Notification' in window && Notification.permission==='granted'){
+        new Notification('📞 Incoming Call', {
+          body: (d.fromName||'Parent') + ' is calling...',
+          icon: '/favicon.ico', tag:'call', requireInteraction:true
+        });
+      }
+    };
     s.on('call_incoming', fn);
     return () => s.off('call_incoming', fn);
   }, []);

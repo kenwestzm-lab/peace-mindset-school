@@ -34,6 +34,11 @@ import DeveloperDashboard from './pages/developer/Dashboard';
 import DeveloperEarnings from './pages/developer/Earnings';
 import DeveloperWithdrawals from './pages/developer/Withdrawals';
 
+// Request notification permission on app start
+if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+  Notification.requestPermission();
+}
+
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { isAuthenticated, user } = useStore();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
