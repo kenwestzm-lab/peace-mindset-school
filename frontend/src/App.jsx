@@ -48,17 +48,21 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
       if (window.__updateToastShown) return;
       window.__updateToastShown = true;
       const div = document.createElement('div');
-      div.innerHTML = \`
-        <div style="position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1F2C34;border:1px solid #D4AF37;border-radius:12px;padding:14px 20px;display:flex;align-items:center;gap:12px;z-index:99999;box-shadow:0 8px 24px rgba(0,0,0,0.4);min-width:280px;max-width:90vw">
-          <span style="font-size:20px">🔄</span>
-          <div style="flex:1;color:#E9EDEF;font-size:14px;font-weight:500">New update available!</div>
-          <button onclick="navigator.serviceWorker.getRegistration().then(r=>r.waiting?.postMessage('SKIP_WAITING'))" style="padding:8px 14px;background:linear-gradient(135deg,#9B1826,#C02035);border:none;border-radius:8px;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Update</button>
-        </div>
-      \`;
+      const inner = document.createElement('div');
+      inner.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1F2C34;border:1px solid #D4AF37;border-radius:12px;padding:14px 20px;display:flex;align-items:center;gap:12px;z-index:99999;box-shadow:0 8px 24px rgba(0,0,0,0.4);min-width:280px';
+      inner.innerHTML = '<span style="font-size:20px">🔄</span><div style="flex:1;color:#E9EDEF;font-size:14px;font-weight:500">New update available!</div>';
+      const btn = document.createElement('button');
+      btn.textContent = 'Update';
+      btn.style.cssText = 'padding:8px 14px;background:#9B1826;border:none;border-radius:8px;color:#fff;font-size:13px;font-weight:600;cursor:pointer';
+      btn.onclick = () => navigator.serviceWorker.getRegistration().then(r => r && r.waiting && r.waiting.postMessage('SKIP_WAITING'));
+      inner.appendChild(btn);
+      div.appendChild(inner);
       document.body.appendChild(div);
       setTimeout(() => div.remove(), 30000);
     };
   }, []);
+
+
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (allowedRoles && !allowedRoles.includes(user?.role)) return <Navigate to="/" replace />;
