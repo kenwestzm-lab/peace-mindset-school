@@ -42,27 +42,6 @@ if (typeof window !== 'undefined' && 'Notification' in window && Notification.pe
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { isAuthenticated, user } = useStore();
 
-  // Network status monitor
-  const [isOnline, setIsOnline] = useState(true);
-  const [showOfflineBanner, setShowOfflineBanner] = useState(false);
-
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      setShowOfflineBanner(false);
-    };
-    const handleOffline = () => {
-      setIsOnline(false);
-      setShowOfflineBanner(true);
-    };
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
-
 
   // PWA update notification
   useEffect(() => {
