@@ -78,6 +78,8 @@ const RoleRedirect = () => {
 };
 
 export default function App() {
+  const [showOfflineBanner, setShowOfflineBanner] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
   const { user, setUser, fetchMe, isAuthenticated } = useStore();
 
   useEffect(() => {
