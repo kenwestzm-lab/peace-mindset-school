@@ -42,6 +42,28 @@ if (typeof window !== 'undefined' && 'Notification' in window && Notification.pe
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { isAuthenticated, user } = useStore();
 
+  // Network status monitor
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [showOfflineBanner, setShowOfflineBanner] = useState(!navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      setShowOfflineBanner(false);
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      setShowOfflineBanner(true);
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+
   // PWA update notification
   useEffect(() => {
     window.__showUpdateToast = () => {
@@ -102,6 +124,32 @@ export default function App() {
 
   return (
     <BrowserRouter>
+
+      {/* Offline banner */}
+      {showOfflineBanner && (
+        <div style={{
+          position:'fixed', top:0, left:0, right:0, zIndex:99998,
+          background:'#E53935', color:'#fff',
+          padding:'8px 16px', textAlign:'center',
+          fontSize:13, fontWeight:600,
+          display:'flex', alignItems:'center', justifyContent:'center', gap:8
+        }}>
+          <span>📵</span>
+          <span>You're offline — messages will send when connected</span>
+        </div>
+      )}
+      {isOnline && !showOfflineBanner && navigator.onLine === true && (
+        <div id="back-online" style={{
+          position:'fixed', top:0, left:0, right:0, zIndex:99998,
+          background:'#25D366', color:'#fff',
+          padding:'8px 16px', textAlign:'center',
+          fontSize:13, fontWeight:600,
+          animation:'slideDown 0.3s ease',
+          display:'none'
+        }}>
+          <span>✅ Back online!</span>
+        </div>
+      )}
       <Toaster position="top-right" toastOptions={{ duration: 4000, style: { background: '#1C1C1C', color: '#fff', borderRadius: '10px', fontFamily: 'DM Sans, sans-serif', fontSize: '14px' }, success: { iconTheme: { primary: '#1A7A4A', secondary: '#fff' } }, error: { iconTheme: { primary: '#C0392B', secondary: '#fff' } } }} />
       <Routes>
         <Route path="/login" element={isAuthenticated ? <RoleRedirect /> : <LoginPage />} />

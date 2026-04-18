@@ -1,27 +1,36 @@
-
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
   build: {
-    chunkSizeWarningLimit: 1000,
+    target: 'es2015',
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+        pure_funcs: ['console.log','console.warn','console.info'],
+        passes: 2,
+      },
+      mangle: { safari10: true },
+      format: { comments: false },
+    },
     rollupOptions: {
       output: {
         manualChunks: {
           'react-vendor': ['react','react-dom','react-router-dom'],
-          'ui-vendor': ['react-hot-toast','date-fns'],
-        }
-      }
+          'ui-vendor': ['react-hot-toast'],
+          'socket': ['socket.io-client'],
+        },
+      },
     },
-    target: 'es2020',
-    minify: 'esbuild',
+    chunkSizeWarningLimit: 600,
+    cssCodeSplit: true,
+    sourcemap: false,
+    reportCompressedSize: true,
   },
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': { target:'http://localhost:5000', changeOrigin:true },
-      '/socket.io': { target:'http://localhost:5000', ws:true }
-    }
-  }
+  optimizeDeps: {
+    include: ['react','react-dom','react-router-dom','socket.io-client'],
+  },
 })
