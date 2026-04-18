@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useStore } from './store/useStore';
@@ -43,8 +43,8 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   const { isAuthenticated, user } = useStore();
 
   // Network status monitor
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [showOfflineBanner, setShowOfflineBanner] = useState(!navigator.onLine);
+  const [isOnline, setIsOnline] = useState(true);
+  const [showOfflineBanner, setShowOfflineBanner] = useState(false);
 
   useEffect(() => {
     const handleOnline = () => {
