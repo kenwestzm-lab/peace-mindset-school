@@ -342,6 +342,7 @@ export default function ParentPayments() {
     load();
     const s = getSocket();
     if (s) {
+      s.on('payments_expired', load);
       s.on('payment_approved', () => { load(); toast.success('✅ Payment approved!'); });
       s.on('payment_rejected', ({ reason }) => { load(); toast.error(`❌ Rejected: ${reason||''}`); });
       s.on('payment_expired',  () => { load(); toast('⚠️ A payment has expired'); });

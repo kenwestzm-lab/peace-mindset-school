@@ -354,6 +354,12 @@ export default function AdminPayments() {
     finally { setLoading(false); }
   }, []);
 
+  // Auto-refresh every 60s to catch newly expired payments
+  useEffect(() => {
+    const interval = setInterval(load, 60000);
+    return () => clearInterval(interval);
+  }, [load]);
+
   useEffect(() => {
     load();
     const socket = getSocket();
@@ -361,10 +367,12 @@ export default function AdminPayments() {
       socket.on('new_payment', load);
       socket.on('payment_approved', load);
       socket.on('payment_rejected', load);
+      socket.on('payments_expired', load);
+      socket.on('fees_updated', load);
     }
     return () => {
       const s = getSocket();
-      if (s) { s.off('new_payment', load); s.off('payment_approved', load); s.off('payment_rejected', load); }
+      if (s) { s.off('new_payment', load); s.off('payment_approved', load); s.off('payment_rejected', load); s.off('payments_expired', load); s.off('fees_updated', load); }
     };
   }, [load, termFilter]);
 
