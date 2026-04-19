@@ -94,6 +94,14 @@ router.put("/update", protect, async (req, res) => {
     }
     await user.save();
     const updated = await User.findById(user._id).select("-password").lean();
+    // Emit real-time update to the user
+    try {
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`user:${user._id}`).emit("profile_updated", { user: updated });
+        io.to("admin_room").emit("profile_updated", { user: updated });
+      }
+    } catch {}
     res.json({ success: true, user: updated });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

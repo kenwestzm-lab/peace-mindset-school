@@ -17,6 +17,20 @@ export default function ProfileSettings() {
   const childPicRefs = useRef({});
 
   useEffect(() => {
+    // Listen for real-time profile updates from other devices
+    const { getSocket } = require('../utils/socket');
+    // Using dynamic import to avoid circular deps
+    import('../utils/socket').then(({ getSocket }) => {
+      const s = getSocket();
+      if (s) {
+        s.on('profile_updated', ({ user: u }) => {
+          if (u._id === user?._id) { updateUser(u); }
+        });
+      }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     setForm(f=>({ ...f, name:user?.name||'', email:user?.email||'', phone:user?.phone||'' }));
     setProfilePic(user?.profilePic||null);
     if (user?.role==='parent') {
@@ -33,8 +47,15 @@ export default function ProfileSettings() {
       const payload = { name: form.name, email: form.email, phone: form.phone };
       if (form.newPassword) { payload.currentPassword = form.currentPassword; payload.newPassword = form.newPassword; }
       const r = await api.put('/profile/update', payload);
-      // Update store
-      if (window.__store_set_user) window.__store_set_user(r.data.user);
+      // Update store in real-time
+      if (r.data.user) {
+        updateUser(r.data.user);
+        // Also update localStorage token info
+        const token = localStorage.getItem('token');
+        if (token) {
+          localStorage.setItem('user', JSON.stringify(r.data.user));
+        }
+      }
       toast.success('✅ Profile updated successfully!');
       setForm(f=>({ ...f, currentPassword:'', newPassword:'', confirmPassword:'' }));
     } catch(err) { toast.error(err.response?.data?.error||'Update failed'); }

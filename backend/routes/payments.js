@@ -115,7 +115,7 @@ router.get("/child/:childId/access", protect, async (req, res) => {
 router.post("/", protect, async (req, res) => {
   try {
     const {
-      childId, paymentType, termYear, termNumber, termNumber2, month,
+      childId, paymentType, termYear, termNumber, termNumber2, month, proofUrl,
       amount, mobileMoneyRef, mobileMoneyProvider, phoneNumber,
       proofImageData, proofImageMime, notes,
     } = req.body;
@@ -280,10 +280,12 @@ router.put("/:id/reject", protect, authorize("admin"), async (req, res) => {
 // ── GET /api/payments/admin/all - Admin gets all payments ─────────────
 router.get("/admin/all", protect, authorize("admin"), async (req, res) => {
   try {
-    const { status, type, page = 1 } = req.query;
+    const { status, type, page = 1, termYear, termNumber } = req.query;
     const filter = {};
     if (status && status !== "all") filter.status = status;
     if (type && type !== "all") filter.paymentType = type;
+    if (termYear) filter.termYear = parseInt(termYear);
+    if (termNumber) filter.termNumber = parseInt(termNumber);
 
     const payments = await Payment.find(filter)
       .populate("child", "name grade studentId profilePic")

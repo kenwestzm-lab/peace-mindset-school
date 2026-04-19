@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useT } from '../../hooks/useT';
 import api from '../../utils/api';
 import toast from 'react-hot-toast';
@@ -78,18 +78,30 @@ const StatusBadge = ({ status, expiresAt, isExpired }) => {
 
 /* ─── PROOF BUTTON ────────────────────────────────────────────── */
 const ProofBtn = ({ url, data, mime }) => {
-  const src = url || (data ? `data:${mime};base64,${data}` : null);
-  if (!src) return <span style={{ color: C.muted, fontSize: 11 }}>—</span>;
+  const [open, setOpen] = React.useState(false);
+  const src = url || (data && data.startsWith('http') ? data : data ? data : null);
+  if (!src) return <span style={{color:'#9CA3AF',fontSize:11}}>No proof</span>;
   return (
-    <a href={src} target="_blank" rel="noopener noreferrer" style={{
-      fontSize: 11, color: C.blue, textDecoration: 'none', fontWeight: 600,
-      padding: '3px 8px', border: `1px solid ${C.blue}40`, borderRadius: 6,
-      background: C.blueBg,
-    }}>👁 View</a>
+    <>
+      <button onClick={()=>setOpen(true)} style={{padding:'4px 10px',background:'rgba(37,211,102,0.1)',border:'1px solid rgba(37,211,102,0.3)',borderRadius:8,color:'#25D366',cursor:'pointer',fontSize:11,fontWeight:600}}>
+        👁 View
+      </button>
+      {open && (
+        <div onClick={()=>setOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.9)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:'#1F2C34',borderRadius:16,padding:16,maxWidth:500,width:'100%'}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}>
+              <span style={{fontWeight:700,color:'#E9EDEF'}}>Payment Proof</span>
+              <button onClick={()=>setOpen(false)} style={{background:'none',border:'none',color:'#8696A0',fontSize:20,cursor:'pointer'}}>✕</button>
+            </div>
+            <img src={src} alt="Payment proof" style={{width:'100%',borderRadius:10,maxHeight:'70vh',objectFit:'contain'}}
+              onError={e=>{e.target.src='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><text y="50" fill="%23888">Image unavailable</text></svg>';}}/>
+            <a href={src} target="_blank" rel="noreferrer" style={{display:'block',marginTop:10,textAlign:'center',color:'#25D366',fontSize:13}}>Open in full screen ↗</a>
+          </div>
+        </div>
+      )}
+    </>
   );
-};
-
-/* ─── ACTION BUTTONS ──────────────────────────────────────────── */
+}
 const ActionBtns = ({ p, processing, onApprove, onReject }) => {
   if (p.status !== 'pending') return null;
   const busy = processing === p._id;
@@ -320,6 +332,8 @@ export default function AdminPayments() {
   const [loading, setLoading]           = useState(true);
   const [activeCat, setActiveCat]       = useState('school');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [termFilter, setTermFilter] = useState({ year: new Date().getFullYear(), term: null }); // null = all terms
+  const [currentTerm, setCurrentTerm] = useState(null);
   const [rejectModal, setRejectModal]   = useState(null);
   const [rejectReason, setRejectReason] = useState('');
   const [processing, setProcessing]     = useState(null);
@@ -331,7 +345,7 @@ export default function AdminPayments() {
   const load = useCallback(async () => {
     try {
       const [r, f] = await Promise.all([
-        api.get('/payments/admin/all?limit=500'),
+        api.get(`/payments/admin/all?limit=500${termFilter.term ? `&termYear=${termFilter.year}&termNumber=${termFilter.term}` : ''}`),
         api.get('/payments/fees'),
       ]);
       setAllPayments(r.data.payments || []);
@@ -352,7 +366,7 @@ export default function AdminPayments() {
       const s = getSocket();
       if (s) { s.off('new_payment', load); s.off('payment_approved', load); s.off('payment_rejected', load); }
     };
-  }, [load]);
+  }, [load, termFilter]);
 
   /* ── Derived data ── */
   const cat = CATS.find(c => c.key === activeCat);
@@ -365,13 +379,14 @@ export default function AdminPayments() {
       total:    ps.length,
       pending:  ps.filter(p => p.status === 'pending').length,
       approved: ps.filter(p => p.status === 'approved').length,
-      revenue:  ps.filter(p => p.status === 'approved').reduce((s, p) => s + (p.paidAmount || p.amount || 0), 0),
+      revenue:  ps.filter(p => p.status === 'approved' && !p.isExpired && (!p.expiresAt || new Date(p.expiresAt) > new Date())).reduce((s, p) => s + (p.paidAmount || p.amount || 0), 0),
     };
     return acc;
   }, {});
 
   const totalPending = allPayments.filter(p => p.status === 'pending').length;
-  const totalRevenue = allPayments.filter(p => p.status === 'approved').reduce((s, p) => s + (p.paidAmount || p.amount || 0), 0);
+  const totalRevenue = allPayments.filter(p => p.status === 'approved' && !p.isExpired && (!p.expiresAt || new Date(p.expiresAt) > new Date())).reduce((s, p) => s + (p.paidAmount || p.amount || 0), 0);
+  const allTimeRevenue = allPayments.filter(p => p.status === 'approved').reduce((s, p) => s + (p.paidAmount || p.amount || 0), 0);
 
   /* ── Actions ── */
   const approve = async (id) => {
@@ -420,7 +435,8 @@ export default function AdminPayments() {
           </h2>
           <p style={{ color: C.muted, fontSize: 13 }}>
             {totalPending > 0 && <span style={{ color: C.amber, fontWeight: 700 }}>⚠️ {totalPending} pending approval · </span>}
-            Total Revenue: <strong style={{ color: C.green }}>{ZMW(totalRevenue)}</strong>
+            Active Revenue: <strong style={{ color: C.green }}>{ZMW(totalRevenue)}</strong>
+            <span style={{color:C.muted,fontWeight:400}}> · All Time: {ZMW(allTimeRevenue)}</span>
           </p>
         </div>
         <button onClick={() => setFeesModal(true)} style={{

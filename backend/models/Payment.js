@@ -34,8 +34,9 @@ const paymentSchema = new mongoose.Schema(
     currency: { type: String, default: "ZMW" },
     
     // ── Payment proof ─────────────────────────────────────────────────
-    proofImageData: { type: String }, // base64 receipt image
+    proofImageData: { type: String },
     proofImageMime: { type: String },
+    proofUrl: { type: String, default: null },
     mobileMoneyRef: { type: String }, // Mobile money transaction ref
     mobileMoneyProvider: {
       type: String,

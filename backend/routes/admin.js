@@ -14,7 +14,7 @@ router.get("/dashboard", protect, authorize("admin"), async (req, res) => {
       Child.countDocuments({ isActive: true }),
       Payment.countDocuments({ status: "pending" }),
       Payment.countDocuments({ status: "approved" }),
-      Payment.aggregate([{ $match: { status: "approved" } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+      Payment.aggregate([{ $match: { status: "approved", isExpired: false, $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
     ]);
     const recentPayments = await Payment.find()
       .populate("child", "name grade")
