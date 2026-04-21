@@ -4,6 +4,7 @@ import api from '../utils/api';
 import { compressImage, formatSize } from '../utils/media';
 import { uploadBase64 } from '../utils/mediaUpload';
 import toast from 'react-hot-toast';
+import { getSocket } from '../utils/socket';
 
 export default function ProfileSettings() {
   const { user, logout, updateUser } = useStore();
@@ -17,18 +18,14 @@ export default function ProfileSettings() {
   const childPicRefs = useRef({});
 
   useEffect(() => {
-    // Listen for real-time profile updates from other devices
-    const { getSocket } = require('../utils/socket');
-    // Using dynamic import to avoid circular deps
-    import('../utils/socket').then(({ getSocket }) => {
-      const s = getSocket();
-      if (s) {
-        s.on('profile_updated', ({ user: u }) => {
-          if (u._id === user?._id) { updateUser(u); }
-        });
-      }
-    }).catch(() => {});
-  }, []);
+    // Real-time profile update listener
+    const s = getSocket();
+    if (s) {
+      const onUpdate = ({ user: u }) => { if (u?._id === user?._id) updateUser(u); };
+      s.on('profile_updated', onUpdate);
+      return () => s.off('profile_updated', onUpdate);
+    }
+  }, [user?._id]);
 
   useEffect(() => {
     setForm(f=>({ ...f, name:user?.name||'', email:user?.email||'', phone:user?.phone||'' }));
