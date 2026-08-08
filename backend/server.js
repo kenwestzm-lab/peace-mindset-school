@@ -29,12 +29,12 @@ app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(morgan("dev"));
 const allowedOrigins=[
   process.env.FRONTEND_URL,
-  "null", // Android WebView sends null origin
+  "null",
+  "https://peace-mindset-schools.vercel.app",
   "https://peace-mindset-school.vercel.app",
-  "https://peace-mindset-school-git-main-kenwestzm.vercel.app",
+  "https://peacemindset2026.netlify.app",
   "http://localhost:5173",
-  "https://peace-mindset-school.vercel.app",
-  "https://peace-mindset-school-git-main-kenwestzm.vercel.app"
+  "http://localhost:5174",
 ].filter(Boolean);
 app.use(cors({
   origin: (origin, cb) => {
