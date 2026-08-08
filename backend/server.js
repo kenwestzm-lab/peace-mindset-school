@@ -329,3 +329,14 @@ server.listen(PORT, () => {
 });
 
 module.exports = { io, connectedUsers };
+
+// ── Keep-alive ping to prevent Render free tier sleep ──────────
+const BACKEND_URL = process.env.RENDER_EXTERNAL_URL || 'https://peace-mindset-backend.onrender.com';
+setInterval(async () => {
+  try {
+    const http = require('http');
+    const https = require('https');
+    const client = BACKEND_URL.startsWith('https') ? https : http;
+    client.get(`${BACKEND_URL}/api/health`, () => {}).on('error', () => {});
+  } catch {}
+}, 14 * 60 * 1000); // ping every 14 minutes
