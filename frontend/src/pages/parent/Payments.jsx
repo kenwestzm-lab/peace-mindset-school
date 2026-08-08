@@ -227,7 +227,7 @@ function EventPayFormInline({ event, children, onSubmit, onClose, t, language })
           {submitting ? '⏳ ' + t('loading') : '✓ ' + t('submitPayment')}
         </button>
         <p style={{ fontSize:11, color:'var(--text-muted)', textAlign:'center', margin:0 }}>
-          {language === 'fr' ? 'Le paiement sera activé après approbation de l'administrateur' : 'Payment activates after admin approval'}
+          {language === 'fr' ? 'Le paiement sera activé après approbation de l\'administrateur' : 'Payment activates after admin approval'}
         </p>
       </div>
     </div>
