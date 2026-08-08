@@ -5,22 +5,24 @@ let socket = null;
 export const connectSocket = (token, userId, role) => {
   if (socket?.connected) return socket;
 
-  const URL = import.meta.env.VITE_SOCKET_URL || window.location.origin;
+  const URL = import.meta.env.VITE_SOCKET_URL || 'https://peace-mindset-backend.onrender.com';
 
   socket = io(URL, {
     auth: { token },
-    transports: ['websocket', 'polling'],
+    transports: ['websocket'],
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 10000,
+    forceNew: false,
   });
 
   socket.on('connect', () => {
-    console.log('🔌 Socket connected');
     socket.emit('join', userId);
     if (role === 'admin') socket.emit('join_admin', userId);
     if (role === 'developer') socket.emit('join_developer');
   });
-
-  socket.on('disconnect', () => console.log('🔌 Socket disconnected'));
-  socket.on('connect_error', (err) => console.error('Socket error:', err));
 
   return socket;
 };
@@ -28,8 +30,5 @@ export const connectSocket = (token, userId, role) => {
 export const getSocket = () => socket;
 
 export const disconnectSocket = () => {
-  if (socket) {
-    socket.disconnect();
-    socket = null;
-  }
+  if (socket) { socket.disconnect(); socket = null; }
 };
