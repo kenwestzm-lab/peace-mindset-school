@@ -135,6 +135,105 @@ function FeeSection({ title, icon, payments, color, emptyMsg }) {
 }
 
 /* ── Submit Payment Form ────────────────────────────────────────── */
+// ── Inline Event Pay Form ──────────────────────────────────────
+function EventPayFormInline({ event, children, onSubmit, onClose, t, language }) {
+  const [childId,   setChildId]   = useState('');
+  const [provider,  setProvider]  = useState('Airtel Money');
+  const [phone,     setPhone]     = useState('');
+  const [txRef,     setTxRef]     = useState('');
+  const [proof,     setProof]     = useState(null);
+  const [submitting,setSubmitting]= useState(false);
+
+  const handleProof = e => {
+    const f = e.target.files[0]; if (!f) return;
+    if (!f.type.startsWith('image/')) { toast.error('Image only'); return; }
+    if (f.size > 5*1024*1024) { toast.error('Max 5MB'); return; }
+    const rd = new FileReader();
+    rd.onload = () => setProof({ data: rd.result, mime: f.type });
+    rd.readAsDataURL(f);
+  };
+
+  const submit = async () => {
+    if (!childId) { toast.error(t('selectChild')); return; }
+    if (!phone)   { toast.error(t('phoneNumber')); return; }
+    setSubmitting(true);
+    try {
+      await onSubmit({
+        childId, eventId: event._id, paymentType: 'event_fee',
+        amount: event.paymentAmount, termYear: new Date().getFullYear(), termNumber: 1,
+        mobileMoneyProvider: provider, phoneNumber: phone, mobileMoneyRef: txRef,
+        proofImageData: proof?.data, proofImageMime: proof?.mime,
+      });
+      onClose();
+    } catch(e) { toast.error(e.response?.data?.error || 'Submission failed'); }
+    finally { setSubmitting(false); }
+  };
+
+  const inp = { padding:'11px 14px', background:'var(--bg-elevated)', border:'1px solid var(--border)', borderRadius:12, color:'var(--text)', fontSize:14, outline:'none', width:'100%', boxSizing:'border-box' };
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.88)', zIndex:500, display:'flex', alignItems:'flex-end' }}>
+      <div style={{ background:'var(--bg-card)', borderRadius:'20px 20px 0 0', padding:20, width:'100%', maxHeight:'92vh', overflowY:'auto', display:'flex', flexDirection:'column', gap:14 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <h3 style={{ color:'var(--text)', fontWeight:800, fontSize:18 }}>💳 {t('payForEvent')}</h3>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-muted)', fontSize:22, cursor:'pointer' }}>✕</button>
+        </div>
+        <div style={{ background:'rgba(155,24,38,0.06)', border:'1px solid rgba(155,24,38,0.15)', borderRadius:12, padding:'14px 16px' }}>
+          <div style={{ fontSize:15, fontWeight:700, color:'var(--text)', marginBottom:2 }}>
+            {language === 'fr' && event.titleFr ? event.titleFr : event.title}
+          </div>
+          <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:6 }}>
+            📅 {new Date(event.eventDate).toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-ZM', { day:'numeric', month:'long', year:'numeric' })}
+          </div>
+          <div style={{ fontSize:22, fontWeight:800, color:'var(--gold)' }}>ZMW {Number(event.paymentAmount).toFixed(2)}</div>
+        </div>
+        <div>
+          <label style={{ fontSize:12, color:'var(--text-muted)', marginBottom:4, display:'block', fontWeight:700 }}>{t('selectChild')} *</label>
+          <select value={childId} onChange={e=>setChildId(e.target.value)} style={inp}>
+            <option value="">— {t('selectChild')} —</option>
+            {children.map(c=><option key={c._id} value={c._id}>{c.name} (Grade {c.grade})</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize:12, color:'var(--text-muted)', marginBottom:4, display:'block', fontWeight:700 }}>{t('mobileMoneyProvider')} *</label>
+          <select value={provider} onChange={e=>setProvider(e.target.value)} style={inp}>
+            <option>Airtel Money</option><option>MTN MoMo</option><option>Zamtel Kwacha</option><option>Bank Transfer</option><option>Cash</option>
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize:12, color:'var(--text-muted)', marginBottom:4, display:'block', fontWeight:700 }}>{t('phoneNumber')} *</label>
+          <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="e.g. 0976123456" style={inp}/>
+        </div>
+        <div>
+          <label style={{ fontSize:12, color:'var(--text-muted)', marginBottom:4, display:'block', fontWeight:700 }}>{t('transactionRef')} ({t('optional')})</label>
+          <input value={txRef} onChange={e=>setTxRef(e.target.value)} placeholder="Mobile money transaction ID" style={inp}/>
+        </div>
+        <div>
+          <label style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6, display:'block', fontWeight:700 }}>📸 {t('proofOfPayment')} ({t('optional')})</label>
+          {proof
+            ? <div style={{ position:'relative' }}>
+                <img src={proof.data} style={{ width:'100%', maxHeight:160, objectFit:'cover', borderRadius:10 }} alt="proof"/>
+                <button onClick={()=>setProof(null)} style={{ position:'absolute', top:6, right:6, background:'rgba(239,68,68,0.8)', border:'none', color:'#fff', borderRadius:'50%', width:26, height:26, cursor:'pointer', fontSize:12 }}>✕</button>
+              </div>
+            : <label style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 14px', background:'var(--bg-elevated)', border:'1.5px dashed var(--border)', borderRadius:12, cursor:'pointer' }}>
+                <input type="file" accept="image/*" onChange={handleProof} style={{ display:'none' }}/>
+                <span style={{ fontSize:20 }}>📎</span>
+                <span style={{ fontSize:13, color:'var(--text-muted)' }}>{language === 'fr' ? 'Joindre la preuve de paiement' : 'Attach payment screenshot'}</span>
+              </label>
+          }
+        </div>
+        <button onClick={submit} disabled={submitting||!childId||!phone}
+          style={{ padding:14, background:(!childId||!phone)?'var(--bg-elevated)':'linear-gradient(135deg,var(--maroon),var(--maroon-light))', border:'none', borderRadius:14, color:(!childId||!phone)?'var(--text-muted)':'#fff', fontWeight:800, fontSize:15, cursor:(!childId||!phone)?'default':'pointer' }}>
+          {submitting ? '⏳ ' + t('loading') : '✓ ' + t('submitPayment')}
+        </button>
+        <p style={{ fontSize:11, color:'var(--text-muted)', textAlign:'center', margin:0 }}>
+          {language === 'fr' ? 'Le paiement sera activé après approbation de l'administrateur' : 'Payment activates after admin approval'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function PayForm({ children, calendar, onSubmit, onClose, t }) {
   const [type,    setType]    = useState('');
   const [childId, setChildId] = useState('');
@@ -189,7 +288,7 @@ function PayForm({ children, calendar, onSubmit, onClose, t }) {
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.88)', zIndex:500, display:'flex', alignItems:'flex-end' }}>
       <div style={{ background:'var(--bg-card)', borderRadius:'20px 20px 0 0', padding:20, width:'100%', maxHeight:'94vh', overflowY:'auto', display:'flex', flexDirection:'column', gap:14 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <h3 style={{ color:'var(--text)', fontWeight:800, fontSize:18 }}>💳 Submit Payment</h3>
+          <h3 style={{ color:'var(--text)', fontWeight:800, fontSize:18 }}>💳 {t('submitPayment')}</h3>
           <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-muted)', fontSize:22, cursor:'pointer' }}>✕</button>
         </div>
 
@@ -303,7 +402,7 @@ function PayForm({ children, calendar, onSubmit, onClose, t }) {
 
         <button onClick={submit} disabled={submitting||!childId||!type||!phone}
           style={{ padding:14, background:(!childId||!type||!phone)?'var(--bg-elevated)':'linear-gradient(135deg,var(--maroon),var(--maroon-light))', border:'none', borderRadius:14, color:(!childId||!type||!phone)?'var(--text-muted)':'#fff', fontWeight:800, fontSize:15, cursor:(!childId||!type||!phone)?'default':'pointer' }}>
-          {submitting ? '⏳ Submitting...' : '✓ Submit Payment'}
+          {submitting ? '⏳ ' + t('loading') : '✓ ' + t('submitPayment')}
         </button>
         <p style={{ fontSize:11, color:'var(--text-muted)', textAlign:'center', margin:0 }}>Payment activates after admin approval</p>
       </div>
@@ -316,8 +415,12 @@ function PayForm({ children, calendar, onSubmit, onClose, t }) {
 ════════════════════════════════════════════════════════════════ */
 export default function ParentPayments() {
   const { user } = useStore();
-  const { t } = useT();
+  const { t, language } = useT();
   const [payments, setPayments] = useState([]);
+  const [events,   setEvents]   = useState([]);
+  const [paidEvMap,setPaidEvMap]= useState({});
+  const [pendEvMap,setPendEvMap]= useState({});
+  const [payingEv, setPayingEv] = useState(null);
   const [children, setChildren] = useState([]);
   const [calendar, setCalendar] = useState(null);
   const [loading,  setLoading]  = useState(true);
@@ -391,9 +494,27 @@ export default function ParentPayments() {
     </div>
   );
 
+  const submitEventPayment = async data => {
+    await api.post('/payments', data);
+    toast.success(t('eventFeeSubmitted'));
+    load();
+  };
+
+  const upcomingEvents = events.filter(e => new Date(e.eventDate) >= new Date());
+
   return (
     <div style={{ padding:'16px 14px 80px', maxWidth:600, margin:'0 auto' }}>
       {showForm && <PayForm children={children} calendar={calendar} onSubmit={submitPayment} onClose={()=>setShowForm(false)} t={t}/>}
+      {payingEv && (
+        <EventPayFormInline
+          event={payingEv}
+          children={children}
+          onSubmit={submitEventPayment}
+          onClose={() => setPayingEv(null)}
+          t={t}
+          language={language}
+        />
+      )}
 
       {/* Current term banner */}
       {current && (
@@ -440,6 +561,65 @@ export default function ParentPayments() {
               <div style={{ fontSize:15, fontWeight:800, color:'var(--gold)' }}>{f.value}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Upcoming Events Section */}
+      {upcomingEvents.length > 0 && (
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:13, fontWeight:800, color:'var(--text)', marginBottom:10, display:'flex', alignItems:'center', gap:6 }}>
+            📅 {t('upcomingEvents')}
+            <span style={{ fontSize:11, background:'var(--maroon)', color:'#fff', borderRadius:20, padding:'1px 8px', fontWeight:700 }}>{upcomingEvents.length}</span>
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {upcomingEvents.map(ev => {
+              const eid = ev._id;
+              const isPaid = paidEvMap[eid];
+              const isPend = pendEvMap[eid];
+              return (
+                <div key={eid} style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:14, padding:'14px 16px', position:'relative', overflow:'hidden' }}>
+                  <div style={{ position:'absolute', left:0, top:0, bottom:0, width:4, background:'#7c3aed', borderRadius:'4px 0 0 4px' }}/>
+                  <div style={{ paddingLeft:8 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
+                      <div style={{ fontSize:14, fontWeight:700, color:'var(--text)', flex:1, paddingRight:8 }}>
+                        {language === 'fr' && ev.titleFr ? ev.titleFr : ev.title}
+                      </div>
+                      {ev.paymentRequired
+                        ? <span style={{ background:'rgba(186,117,23,0.1)', color:'var(--gold)', border:'1px solid rgba(186,117,23,0.25)', borderRadius:20, padding:'2px 10px', fontSize:12, fontWeight:700, whiteSpace:'nowrap' }}>
+                            ZMW {Number(ev.paymentAmount).toFixed(2)}
+                          </span>
+                        : <span style={{ background:'rgba(22,163,74,0.1)', color:'#16a34a', border:'1px solid rgba(22,163,74,0.25)', borderRadius:20, padding:'2px 10px', fontSize:12, fontWeight:700 }}>
+                            🎉 {t('freeEvent')}
+                          </span>
+                      }
+                    </div>
+                    <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:8 }}>
+                      {language === 'fr' && ev.descriptionFr ? ev.descriptionFr : ev.description}
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <span style={{ fontSize:12, color:'var(--maroon)', fontWeight:600 }}>
+                        📅 {new Date(ev.eventDate).toLocaleDateString(language === 'fr' ? 'fr-FR' : 'en-ZM', { day:'numeric', month:'long', year:'numeric' })}
+                      </span>
+                      {ev.paymentRequired ? (
+                        isPaid
+                          ? <span style={{ fontSize:12, color:'#16a34a', fontWeight:700 }}>✅ {t('paymentApproved')}</span>
+                          : isPend
+                          ? <span style={{ fontSize:12, color:'var(--gold)', fontWeight:700 }}>⏳ {t('pendingApproval')}</span>
+                          : <button
+                              onClick={() => setPayingEv(ev)}
+                              style={{ padding:'6px 16px', background:'linear-gradient(135deg,var(--maroon),var(--maroon-light))', border:'none', borderRadius:20, color:'#fff', fontWeight:700, fontSize:12, cursor:'pointer' }}
+                            >
+                              💳 {t('payForEvent')}
+                            </button>
+                      ) : (
+                        <span style={{ fontSize:12, color:'#16a34a', fontWeight:600 }}>🎉 {t('freeAttend')}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
