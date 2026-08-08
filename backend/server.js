@@ -30,6 +30,7 @@ app.use(morgan("dev"));
 const allowedOrigins=[
   process.env.FRONTEND_URL,
   "null",
+  "https://peace-mindset-school-better-educati.vercel.app",
   "https://peace-mindset-schools.vercel.app",
   "https://peace-mindset-school.vercel.app",
   "https://peacemindset2026.netlify.app",
