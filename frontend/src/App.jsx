@@ -1,38 +1,61 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useStore } from './store/useStore';
 import { initPushNotifications, subscribeToPush } from './utils/push';
 import './styles/globals.css';
 
-import LoginPage from './pages/auth/LoginPage';
-import RegisterPage from './pages/auth/RegisterPage';
-import AppLayout from './components/layout/AppLayout';
-import ParentDashboard from './pages/parent/Dashboard';
-import ParentChildren from './pages/parent/Children';
-import ParentPayments from './pages/parent/Payments';
-import ParentResults from './pages/parent/Results';
-import ParentAnnouncements from './pages/parent/Announcements';
-import ParentEvents from './pages/parent/Events';
-import ParentChat from './pages/parent/Chat';
-import ParentStories from './pages/parent/Stories';
-import ParentProfile from './pages/parent/Profile';
-import AdminSlideshow from './pages/admin/Slideshow';
-import AdminDashboard from './pages/admin/Dashboard';
-import AdminChildren from './pages/admin/Children';
-import AdminPayments from './pages/admin/Payments';
-import AdminAnnouncements from './pages/admin/Announcements';
-import AdminEvents from './pages/admin/Events';
-import AdminStoriesPage from './pages/admin/Stories';
-import AdminChat from './pages/admin/Chat';
-import AdminParents from './pages/admin/Parents';
-import ProfileSettings from './pages/ProfileSettings';
-import AdminResults from './pages/admin/Results';
-import AdminSettings from './pages/admin/Settings';
-import AdminCalendar from './pages/admin/Calendar';
-import DeveloperDashboard from './pages/developer/Dashboard';
-import DeveloperEarnings from './pages/developer/Earnings';
-import DeveloperWithdrawals from './pages/developer/Withdrawals';
+
+// Auth pages - load immediately
+const LoginPage    = lazy(() => import('./pages/auth/LoginPage'));
+const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'));
+
+// Layout - load immediately
+const AppLayout = lazy(() => import('./components/layout/AppLayout'));
+
+// Parent pages - lazy loaded
+const ParentDashboard     = lazy(() => import('./pages/parent/Dashboard'));
+const ParentChildren      = lazy(() => import('./pages/parent/Children'));
+const ParentPayments      = lazy(() => import('./pages/parent/Payments'));
+const ParentResults       = lazy(() => import('./pages/parent/Results'));
+const ParentAnnouncements = lazy(() => import('./pages/parent/Announcements'));
+const ParentEvents        = lazy(() => import('./pages/parent/Events'));
+const ParentChat          = lazy(() => import('./pages/parent/Chat'));
+const ParentStories       = lazy(() => import('./pages/parent/Stories'));
+const ParentProfile       = lazy(() => import('./pages/parent/Profile'));
+
+// Admin pages - lazy loaded
+const AdminSlideshow      = lazy(() => import('./pages/admin/Slideshow'));
+const AdminDashboard      = lazy(() => import('./pages/admin/Dashboard'));
+const AdminChildren       = lazy(() => import('./pages/admin/Children'));
+const AdminPayments       = lazy(() => import('./pages/admin/Payments'));
+const AdminAnnouncements  = lazy(() => import('./pages/admin/Announcements'));
+const AdminEvents         = lazy(() => import('./pages/admin/Events'));
+const AdminStoriesPage    = lazy(() => import('./pages/admin/Stories'));
+const AdminChat           = lazy(() => import('./pages/admin/Chat'));
+const AdminParents        = lazy(() => import('./pages/admin/Parents'));
+const AdminResults        = lazy(() => import('./pages/admin/Results'));
+const AdminSettings       = lazy(() => import('./pages/admin/Settings'));
+const AdminCalendar       = lazy(() => import('./pages/admin/Calendar'));
+const AdminDisbursements  = lazy(() => import('./pages/admin/Disbursements'));
+
+// Developer pages - lazy loaded
+const DeveloperDashboard   = lazy(() => import('./pages/developer/Dashboard'));
+const DeveloperEarnings    = lazy(() => import('./pages/developer/Earnings'));
+const DeveloperWithdrawals = lazy(() => import('./pages/developer/Withdrawals'));
+
+// Shared pages
+const ProfileSettings = lazy(() => import('./pages/ProfileSettings'));
+
+// Loading spinner for Suspense fallback
+const PageLoader = () => (
+  <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'var(--bg)' }}>
+    <div style={{ textAlign:'center' }}>
+      <div style={{ width:40, height:40, border:'3px solid var(--border)', borderTop:'3px solid var(--maroon)', borderRadius:'50%', animation:'spin 0.8s linear infinite', margin:'0 auto 12px' }}/>
+      <div style={{ fontSize:13, color:'var(--text-muted)' }}>Loading...</div>
+    </div>
+  </div>
+);
 
 // Request notification permission on app start
 if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
@@ -105,6 +128,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <Suspense fallback={<PageLoader />}>
 
       {/* Offline banner */}
       {showOfflineBanner && (
@@ -173,6 +197,7 @@ export default function App() {
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }
