@@ -362,3 +362,9 @@ tbody td { padding: 12px 14px; color: var(--text); vertical-align: middle; }
     width: 100% !important;
   }
 }
+
+/* Page loader spin animation */
+@keyframes spin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
