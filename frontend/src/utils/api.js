@@ -1,4 +1,4 @@
-// Lightweight fetch-based API client (replaces axios - saves 30KB)
+// Lightweight fetch-based API client
 const BASE_URL = import.meta.env.VITE_API_URL || 'https://peace-mindset-backend.onrender.com/api';
 
 const getToken = () => localStorage.getItem('token');
@@ -9,7 +9,9 @@ const handleResponse = async (res) => {
     window.location.href = '/login';
     return;
   }
-  const data = await res.json().catch(() => ({}));
+  // Handle empty responses
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : {};
   if (!res.ok) {
     const error = new Error(data?.error || data?.message || 'Request failed');
     error.response = { data, status: res.status };
@@ -20,18 +22,27 @@ const handleResponse = async (res) => {
 
 const request = async (method, url, body, options = {}) => {
   const headers = {
-    'Content-Type': 'application/json',
     ...options.headers,
   };
+
+  // Only set Content-Type for non-FormData requests
+  if (!(body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
+
   const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const config = {
     method,
     headers,
     credentials: 'include',
+    mode: 'cors',
   };
-  if (body !== undefined) config.body = JSON.stringify(body);
+
+  if (body !== undefined && body !== null) {
+    config.body = body instanceof FormData ? body : JSON.stringify(body);
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -44,7 +55,7 @@ const request = async (method, url, body, options = {}) => {
   } catch (err) {
     clearTimeout(timeout);
     if (err.name === 'AbortError') {
-      const error = new Error('Request timeout');
+      const error = new Error('Request timeout - please try again');
       error.response = { data: { error: 'Request timeout' }, status: 408 };
       throw error;
     }
@@ -52,15 +63,15 @@ const request = async (method, url, body, options = {}) => {
   }
 };
 
-// Multipart form upload (for file uploads)
 const upload = async (url, formData) => {
   const headers = {};
   const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${BASE_URL}${url}`, {
     method: 'POST',
     headers,
     credentials: 'include',
+    mode: 'cors',
     body: formData,
   });
   return await handleResponse(res);
