@@ -1,7 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useT } from '../../hooks/useT';
 import api from '../../utils/api';
-import { format } from 'date-fns';
+// Tiny date formatter (replaces date-fns)
+const format = (date, fmt) => {
+  const d = new Date(date);
+  const pad = n => String(n).padStart(2, '0');
+  return fmt
+    .replace('yyyy', d.getFullYear())
+    .replace('yy', String(d.getFullYear()).slice(-2))
+    .replace('MM', pad(d.getMonth()+1))
+    .replace('MMM', ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()])
+    .replace('MMMM', ['January','February','March','April','May','June','July','August','September','October','November','December'][d.getMonth()])
+    .replace('dd', pad(d.getDate()))
+    .replace('d', d.getDate())
+    .replace('HH', pad(d.getHours()))
+    .replace('mm', pad(d.getMinutes()))
+    .replace('ss', pad(d.getSeconds()));
+};
 import toast from 'react-hot-toast';
 
 // ── Earnings Ledger ────────────────────────────────────────────────────────────

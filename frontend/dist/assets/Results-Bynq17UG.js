@@ -1,1 +1,0 @@
-import{u as o,j as t,g as s}from"./index-DD-Z23FV.js";import{Z as r}from"./ZambianReportBook-DLbEd9e_.js";import"./router-C2ZjvWJD.js";import"./ui-o8TZWZzm.js";import"./store-D6tlh8R0.js";import"./utils-Bp4OuD0m.js";import"./socket-Cl8xo7cA.js";function i(){const{token:i}=o(),e=s();return t.jsx(r,{socket:e,token:i,isAdmin:!1})}export{i as default};

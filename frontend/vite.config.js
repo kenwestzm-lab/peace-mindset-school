@@ -22,7 +22,7 @@ export default defineConfig({
           'ui': ['react-hot-toast'],
           'socket': ['socket.io-client'],
           'store': ['zustand'],
-          'utils': ['axios','date-fns'],
+        
         },
       },
     },
@@ -31,6 +31,6 @@ export default defineConfig({
     sourcemap: false,
   },
   optimizeDeps: {
-    include: ['react','react-dom','react-router-dom','socket.io-client','zustand','axios','date-fns'],
+    include: ['react','react-dom','react-router-dom','socket.io-client','zustand'],
   },
 })

@@ -1,27 +1,78 @@
-import axios from 'axios';
+// Lightweight fetch-based API client (replaces axios - saves 30KB)
+const BASE_URL = import.meta.env.VITE_API_URL || 'https://peace-mindset-backend.onrender.com/api';
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'https://peace-mindset-backend.onrender.com/api',
-  timeout: 15000,
-  withCredentials: true,
-  headers: { 'Content-Type': 'application/json' },
-});
+const getToken = () => localStorage.getItem('token');
 
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
-
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-    }
-    return Promise.reject(error);
+const handleResponse = async (res) => {
+  if (res.status === 401) {
+    localStorage.removeItem('token');
+    window.location.href = '/login';
+    return;
   }
-);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const error = new Error(data?.error || data?.message || 'Request failed');
+    error.response = { data, status: res.status };
+    throw error;
+  }
+  return { data };
+};
+
+const request = async (method, url, body, options = {}) => {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const config = {
+    method,
+    headers,
+    credentials: 'include',
+  };
+  if (body !== undefined) config.body = JSON.stringify(body);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  config.signal = controller.signal;
+
+  try {
+    const res = await fetch(`${BASE_URL}${url}`, config);
+    clearTimeout(timeout);
+    return await handleResponse(res);
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') {
+      const error = new Error('Request timeout');
+      error.response = { data: { error: 'Request timeout' }, status: 408 };
+      throw error;
+    }
+    throw err;
+  }
+};
+
+// Multipart form upload (for file uploads)
+const upload = async (url, formData) => {
+  const headers = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${BASE_URL}${url}`, {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    body: formData,
+  });
+  return await handleResponse(res);
+};
+
+const api = {
+  get:    (url, opts)       => request('GET',    url, undefined, opts),
+  post:   (url, body, opts) => request('POST',   url, body,      opts),
+  put:    (url, body, opts) => request('PUT',    url, body,      opts),
+  patch:  (url, body, opts) => request('PATCH',  url, body,      opts),
+  delete: (url, opts)       => request('DELETE', url, undefined, opts),
+  upload,
+};
 
 export default api;
