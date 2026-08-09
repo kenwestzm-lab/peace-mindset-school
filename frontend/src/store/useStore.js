@@ -15,7 +15,6 @@ export const useStore = create(
         const res = await api.post('/auth/login', { email, password });
         const { token, user } = res.data;
         localStorage.setItem('token', token);
-        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         set({ user, token, isAuthenticated: true, language: user.language || 'en' });
         connectSocket(token, user._id, user.role);
         return user;
@@ -25,7 +24,6 @@ export const useStore = create(
         const res = await api.post('/auth/register', data);
         const { token, user } = res.data;
         localStorage.setItem('token', token);
-        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         set({ user, token, isAuthenticated: true, language: user.language || 'en' });
         connectSocket(token, user._id, user.role);
         return user;
@@ -42,8 +40,7 @@ export const useStore = create(
         try {
           const token = localStorage.getItem('token');
           if (!token) return;
-          api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-          const res = await api.get('/auth/me');
+            const res = await api.get('/auth/me');
           const { user } = res.data;
           set({ user, token, isAuthenticated: true, language: user.language || 'en' });
           connectSocket(token, user._id, user.role);
