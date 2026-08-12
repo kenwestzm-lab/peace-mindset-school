@@ -32,12 +32,28 @@ const ICE = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'turn:relay1.expressturn.com:3478', username: 'ef4EQOEQY3RJKA5K5W', credential: 'M2gL8Yj0KzPnEXj9' },
     { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
   ],
   iceCandidatePoolSize: 10,
 };
+
+// Diagnostic logging for connection issues
+function attachDiagnostics(pc, label) {
+  pc.oniceconnectionstatechange = () => {
+    console.log(`[${label}] ICE state:`, pc.iceConnectionState);
+    if (pc.iceConnectionState === 'failed') {
+      console.error(`[${label}] Connection FAILED - TURN relay may have failed`);
+      try { pc.restartIce(); } catch {}
+    }
+  };
+  pc.onconnectionstatechange = () => {
+    console.log(`[${label}] Connection state:`, pc.connectionState);
+  };
+}
 
 const AUDIO_C = { audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true, sampleRate:48000 }, video:false };
 
@@ -290,6 +306,7 @@ export function OutgoingCall({toUserId, toName, toProfilePic, myName, myUserId, 
         localStreamRef.current=stream;
         const pc=new RTCPeerConnection(ICE);
         pcRef.current=pc;
+        attachDiagnostics(pc, 'call');
         stream.getTracks().forEach(t=>pc.addTrack(t,stream));
 
         pc.ontrack=e=>{
@@ -414,7 +431,8 @@ export function IncomingCall({fromSocketId, fromName, fromProfilePic, offer, onE
       localStreamRef.current=stream;
       const pc=new RTCPeerConnection(ICE);
       pcRef.current=pc;
-      stream.getTracks().forEach(t=>pc.addTrack(t,stream));
+      attachDiagnostics(pc, 'call');
+        stream.getTracks().forEach(t=>pc.addTrack(t,stream));
 
       pc.ontrack=e=>{
         if(!e.streams[0])return;
