@@ -94,6 +94,7 @@ app.use((err, req, res, next) => res.status(err.status||500).json({ error: err.m
 
 // ── Socket.io ─────────────────────────────────────────────────────────
 const connectedUsers = new Map();
+const activeCallAttempts = new Map(); // tracks pending call requests to prevent false timeouts
 
 io.on("connection", (socket) => {
 
@@ -243,25 +244,39 @@ io.on("connection", (socket) => {
   socket.on("call_request", ({ toUserId, fromName, fromUserId, offer }) => {
     const toSocketId = connectedUsers.get(toUserId);
     if (toSocketId) {
+      const callKey = `${socket.id}->${toSocketId}`;
+      activeCallAttempts.set(callKey, true);
+
       io.to(`user:${toUserId}`).emit("call_incoming", {
         fromSocketId: socket.id, fromUserId, fromName, offer
       });
-      // Auto-timeout: if no answer in 30s, notify caller
+      // Auto-timeout: only fire if call was NEVER answered/rejected/ended
       setTimeout(() => {
-        const stillOnline = connectedUsers.get(toUserId);
-        if (stillOnline) socket.emit("call_no_answer", { toUserId, fromName: fromName });
+        if (activeCallAttempts.get(callKey)) {
+          activeCallAttempts.delete(callKey);
+          const stillOnline = connectedUsers.get(toUserId);
+          if (stillOnline) socket.emit("call_no_answer", { toUserId, fromName: fromName });
+        }
       }, 30000);
     } else {
       socket.emit("call_unavailable", { toUserId });
     }
   });
   socket.on("call_answer", ({ toSocketId, answer }) => {
+    const callKey = `${toSocketId}->${socket.id}`;
+    activeCallAttempts.delete(callKey);
     io.to(toSocketId).emit("call_answered", { answer, fromSocketId: socket.id });
   });
   socket.on("call_reject", ({ toSocketId }) => {
+    const callKey = `${toSocketId}->${socket.id}`;
+    activeCallAttempts.delete(callKey);
     io.to(toSocketId).emit("call_rejected");
   });
   socket.on("call_end", ({ toSocketId }) => {
+    const callKey1 = `${socket.id}->${toSocketId}`;
+    const callKey2 = `${toSocketId}->${socket.id}`;
+    activeCallAttempts.delete(callKey1);
+    activeCallAttempts.delete(callKey2);
     io.to(toSocketId).emit("call_ended");
   });
   socket.on("call_ice", ({ toSocketId, candidate }) => {
