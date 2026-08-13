@@ -322,10 +322,15 @@ export function OutgoingCall({toUserId, toName, toProfilePic, myName, myUserId, 
         };
 
         pc.onconnectionstatechange=()=>{
-          if(pc.connectionState==='connected'){setConnected(true);setStatus('Connected');clearInterval(timerRef.current);timerRef.current=setInterval(()=>setDuration(d=>d+1),1000);}
+          if(pc.connectionState==='connected'){
+            try{ringRef.current?.stop();}catch{}
+            setConnected(true);setStatus('Connected');clearInterval(timerRef.current);timerRef.current=setInterval(()=>setDuration(d=>d+1),1000);
+          }
           if(pc.connectionState==='failed'){toast.error('Connection failed');pc.restartIce();}
           if(pc.connectionState==='disconnected') setTimeout(()=>{if(pc.connectionState==='disconnected')hangup();},5000);
         };
+        // Start ringback tone for caller (so they hear ringing while waiting)
+        ringRef.current = makeRingtone();
         pc.oniceconnectionstatechange=()=>{if(pc.iceConnectionState==='failed')pc.restartIce();};
 
         const offer=await pc.createOffer({offerToReceiveAudio:true,offerToReceiveVideo:true});
