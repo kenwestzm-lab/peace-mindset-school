@@ -17,7 +17,7 @@ async function sendMTNMoMo(amount, phoneNumber, reference) {
   const env = process.env.MTN_ENV || "sandbox"; // "sandbox" or "production"
   const baseUrl = env === "production"
     ? "proxy.momoapi.mtn.com"
-    : "sandbox.momoapi.mtn.com";
+    : "sandbox.momodeveloper.mtn.com";
 
   if (!subKey || !apiUser || !apiKey) {
     throw new Error("MTN_NOT_CONFIGURED");
