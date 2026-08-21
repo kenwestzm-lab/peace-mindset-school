@@ -52,9 +52,11 @@ async function sendMTNMoMo(amount, phoneNumber, reference) {
 
   // Step 2: Send disbursement transfer
   const msisdn = phoneNumber.replace(/^0/, "260"); // Convert 097... → 26097... (Zambia code)
+  // Sandbox only supports EUR currency; production uses ZMW
+  const currency = env === "production" ? "ZMW" : "EUR";
   const body = JSON.stringify({
     amount: amount.toFixed(2),
-    currency: "ZMW",
+    currency,
     externalId: reference,
     payee: { partyIdType: "MSISDN", partyId: msisdn },
     payerMessage: "Peace Mindset Developer Earnings",
