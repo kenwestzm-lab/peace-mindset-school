@@ -325,7 +325,7 @@ router.post("/withdraw", protect, authorize("developer"), async (req, res) => {
         mobileMoneyProvider,
         withdrawAmount,
         phoneNumber,
-        withdrawal._id.toString()
+        require("crypto").randomUUID()
       );
 
       // Success — mark completed
