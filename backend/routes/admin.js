@@ -205,4 +205,39 @@ router.put("/parents/:id/activate", protect, authorize("admin"), async (req, res
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/admin/parents/:id/reset-password
+// Admin triggers a real password reset email to the parent
+router.post("/parents/:id/reset-password", protect, authorize("admin"), async (req, res) => {
+  try {
+    const crypto = require("crypto");
+    const { sendPasswordResetEmail } = require("../utils/email");
+
+    const parent = await User.findById(req.params.id);
+    if (!parent) return res.status(404).json({ error: "Parent not found." });
+    if (!parent.email) return res.status(400).json({ error: "This parent has no email on file." });
+
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+    parent.resetPasswordToken = hashedToken;
+    parent.resetPasswordExpires = Date.now() + 30 * 60 * 1000; // 30 min
+    await parent.save({ validateBeforeSave: false });
+
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${rawToken}`;
+
+    try {
+      await sendPasswordResetEmail({ to: parent.email, name: parent.name, resetUrl, setByAdmin: true });
+    } catch (mailErr) {
+      console.error("Admin-triggered reset email failed:", mailErr.message);
+      parent.resetPasswordToken = undefined;
+      parent.resetPasswordExpires = undefined;
+      await parent.save({ validateBeforeSave: false });
+      return res.status(500).json({ error: "Failed to send reset email. Please check email configuration." });
+    }
+
+    res.json({ message: `Password reset email sent to ${parent.email}.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

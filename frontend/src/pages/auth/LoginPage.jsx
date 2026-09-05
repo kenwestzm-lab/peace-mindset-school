@@ -116,6 +116,11 @@ export default function LoginPage() {
                   cursor:'pointer', fontSize:15, color:'var(--text-muted)', padding:0, zIndex:2,
                 }}>{showPass?'🙈':'👁️'}</button>
               </div>
+              <div style={{ textAlign:'right', marginTop:-8, marginBottom:4 }}>
+                <Link to="/forgot-password" style={{ fontSize:12.5, color:'var(--maroon)', fontWeight:600, textDecoration:'none' }}>
+                  {t('forgotPassword')}
+                </Link>
+              </div>
               <button type="submit" className="btn btn-primary w-full btn-lg" disabled={loading} style={{ marginTop:4, letterSpacing:'0.04em' }}>
                 {loading ? <><span className="spinner"/> {t('loading')}</> : t('login')}
               </button>

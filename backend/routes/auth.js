@@ -161,3 +161,69 @@ router.put(
 );
 
 module.exports = router;
+
+// ─── POST /api/auth/forgot-password ─────────────────────────────────────────
+// Parent self-service: request a password reset email
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const crypto = require("crypto");
+    const { sendPasswordResetEmail } = require("../utils/email");
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required." });
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    // Always respond success (don't reveal if email exists) — but only send if found
+    if (user) {
+      const rawToken = crypto.randomBytes(32).toString("hex");
+      const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+      user.resetPasswordToken = hashedToken;
+      user.resetPasswordExpires = Date.now() + 30 * 60 * 1000; // 30 min
+      await user.save({ validateBeforeSave: false });
+
+      const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${rawToken}`;
+      try {
+        await sendPasswordResetEmail({ to: user.email, name: user.name, resetUrl, setByAdmin: false });
+      } catch (mailErr) {
+        console.error("Email send failed:", mailErr.message);
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+        await user.save({ validateBeforeSave: false });
+        return res.status(500).json({ error: "Failed to send reset email. Please try again later." });
+      }
+    }
+    res.json({ message: "If an account exists with that email, a reset link has been sent." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/auth/reset-password/:token ───────────────────────────────────
+// Completes the reset using the token from the email link
+router.post("/reset-password/:token", async (req, res) => {
+  try {
+    const crypto = require("crypto");
+    const { password } = req.body;
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters." });
+    }
+    const hashedToken = crypto.createHash("sha256").update(req.params.token).digest("hex");
+    const user = await User.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpires: { $gt: Date.now() },
+    }).select("+resetPasswordToken +resetPasswordExpires");
+
+    if (!user) {
+      return res.status(400).json({ error: "Reset link is invalid or has expired." });
+    }
+
+    user.password = password; // pre-save hook hashes it
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    res.json({ message: "Password has been reset successfully. You can now log in." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+

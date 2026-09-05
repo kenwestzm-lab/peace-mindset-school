@@ -9,6 +9,8 @@ import './styles/globals.css';
 // Auth pages - load immediately
 const LoginPage    = lazy(() => import('./pages/auth/LoginPage'));
 const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'));
+const ForgotPassword = lazy(() => import('./pages/auth/ForgotPassword'));
+const ResetPassword  = lazy(() => import('./pages/auth/ResetPassword'));
 
 // Layout - load immediately
 const AppLayout = lazy(() => import('./components/layout/AppLayout'));
@@ -159,6 +161,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={isAuthenticated ? <RoleRedirect /> : <LoginPage />} />
         <Route path="/register" element={isAuthenticated ? <RoleRedirect /> : <RegisterPage />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password/:token" element={<ResetPassword />} />
         <Route path="/" element={isAuthenticated ? <RoleRedirect /> : <Navigate to="/login" />} />
 
         <Route path="/parent" element={<ProtectedRoute allowedRoles={['parent']}><AppLayout /></ProtectedRoute>}>

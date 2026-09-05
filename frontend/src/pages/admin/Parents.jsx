@@ -42,6 +42,20 @@ export default function AdminParents() {
     finally { setToggling(null); }
   };
 
+  const [resetting, setResetting] = useState(null);
+  const handleResetPassword = async (parent) => {
+    if (!parent.email) { toast.error('This parent has no email on file'); return; }
+    const confirmed = window.confirm(`Send a password reset email to ${parent.name} (${parent.email})?`);
+    if (!confirmed) return;
+    setResetting(parent._id);
+    try {
+      const r = await api.post(`/admin/parents/${parent._id}/reset-password`);
+      toast.success(r.data.message || 'Reset email sent!');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to send reset email');
+    } finally { setResetting(null); }
+  };
+
   const filtered = parents.filter(p =>
     p.name?.toLowerCase().includes(search.toLowerCase()) ||
     p.email?.toLowerCase().includes(search.toLowerCase()) ||
@@ -99,6 +113,13 @@ export default function AdminParents() {
                 style={{ padding:'6px 12px', background: parent.isActive ? 'rgba(245,158,11,0.1)' : 'rgba(74,222,128,0.1)', border:`1px solid ${parent.isActive?'rgba(245,158,11,0.3)':'rgba(74,222,128,0.3)'}`, borderRadius:8, color: parent.isActive ? '#F59E0B' : '#4ADE80', cursor:'pointer', fontSize:11, fontWeight:600 }}
               >
                 {toggling===parent._id ? '...' : parent.isActive ? '🚫 Deactivate' : '✅ Activate'}
+              </button>
+              <button
+                onClick={() => handleResetPassword(parent)}
+                disabled={resetting === parent._id}
+                style={{ padding:'6px 12px', background:'rgba(37,99,235,0.1)', border:'1px solid rgba(37,99,235,0.25)', borderRadius:8, color:'#2563eb', cursor:'pointer', fontSize:11, fontWeight:600 }}
+              >
+                {resetting===parent._id ? '⏳ Sending...' : '🔑 Reset Password'}
               </button>
               <button
                 onClick={() => handleDelete(parent)}
