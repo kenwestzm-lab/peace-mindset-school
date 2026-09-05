@@ -55,6 +55,12 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json({ limit: "50mb" })); // 20mb for profile pics base64
+
+// ── Security: sanitize against NoSQL injection & HTTP param pollution ──
+const mongoSanitize = require("express-mongo-sanitize");
+const hpp = require("hpp");
+app.use(mongoSanitize()); // strips $ and . from req.body/query/params to prevent Mongo operator injection
+app.use(hpp()); // prevents HTTP parameter pollution attacks
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 const limiter = rateLimit({ windowMs: 15*60*1000, max: 500, validate: { xForwardedForHeader: false } });
