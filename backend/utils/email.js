@@ -1,11 +1,14 @@
 const nodemailer = require("nodemailer");
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_APP_PASSWORD,
   },
+  family: 4, // Force IPv4 - fixes ENETUNREACH on some cloud hosts (e.g. Render)
 });
 
 async function sendPasswordResetEmail({ to, name, resetUrl, setByAdmin = false }) {
