@@ -1,18 +1,43 @@
-const nodemailer = require("nodemailer");
+const https = require("https");
 
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false, // STARTTLS
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD,
-  },
-  family: 4,
-  connectionTimeout: 20000,
-  greetingTimeout: 20000,
-  socketTimeout: 20000,
-});
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
+const SENDER_EMAIL = process.env.EMAIL_USER || "kenwestzm@gmail.com";
+
+function sendViaBrevo({ to, toName, subject, html }) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      sender: { name: "Peace Mindset Private School", email: SENDER_EMAIL },
+      to: [{ email: to, name: toName || to }],
+      subject,
+      htmlContent: html,
+    });
+
+    const req = https.request({
+      hostname: "api.brevo.com",
+      path: "/v3/smtp/email",
+      method: "POST",
+      headers: {
+        "api-key": BREVO_API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Content-Length": Buffer.byteLength(body),
+      },
+    }, (res) => {
+      let data = "";
+      res.on("data", d => data += d);
+      res.on("end", () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(JSON.parse(data || "{}"));
+        } else {
+          reject(new Error(`Brevo API error (${res.statusCode}): ${data}`));
+        }
+      });
+    });
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
 
 async function sendPasswordResetEmail({ to, name, resetUrl, setByAdmin = false }) {
   const subject = setByAdmin
@@ -44,12 +69,7 @@ async function sendPasswordResetEmail({ to, name, resetUrl, setByAdmin = false }
     <p style="color: #999; font-size: 12px;">— Peace Mindset Private School</p>
   </div>`;
 
-  await transporter.sendMail({
-    from: `"Peace Mindset Private School" <${process.env.EMAIL_USER}>`,
-    to,
-    subject,
-    html,
-  });
+  await sendViaBrevo({ to, subject, html });
 }
 
-module.exports = { sendPasswordResetEmail, transporter };
+module.exports = { sendPasswordResetEmail };
