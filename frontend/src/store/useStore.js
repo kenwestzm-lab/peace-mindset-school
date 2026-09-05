@@ -31,7 +31,6 @@ export const useStore = create(
 
       logout: () => {
         localStorage.removeItem('token');
-        delete api.defaults.headers.common['Authorization'];
         disconnectSocket();
         set({ user: null, token: null, isAuthenticated: false });
       },
